@@ -94,7 +94,22 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 continue
 
             buy_price = float(info["buy_price"])
-            current_price = float(info.get("current_price", 0))
+            current_price = float(info.get("current_price", 0) or 0)
+
+            # ✅ Fetch from Yahoo Finance if missing/invalid
+            if not current_price or current_price <= 0:
+                try:
+                    ticker_data = yf.Ticker(ticker)
+                    hist = ticker_data.history(period="1d")
+                    if not hist.empty:
+                        current_price = hist["Close"].iloc[-1]
+                        print(f"💹 Fetched live price for {ticker}: {current_price}")
+                    else:
+                        print(f"⚠️ No price data found for {ticker}, defaulting to buy_price")
+                        current_price = buy_price
+                except Exception as e:
+                    print(f"❌ Error fetching price for {ticker}: {e}")
+                    current_price = buy_price
             expected = info.get("expected", "HOLD")
 
             decision, reason, _ = check_sell_conditions(
