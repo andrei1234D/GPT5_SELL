@@ -2,10 +2,13 @@ import argparse
 import yfinance as yf
 from tracker import load_data
 from notify import send_discord_alert
+from fetch_data import compute_indicators
+
 from datetime import datetime
 import csv
 import os
 import json
+
 
 TRACKER_FILE = "bot/sell_alerts_tracker.json"
 
@@ -71,6 +74,12 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
 def run_decision_engine(test_mode=False, end_of_day=False):
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
     tracked = load_data(file_to_load)
+    indicators = compute_indicators(ticker)
+
+    if indicators:
+        current_price = indicators["current_price"]
+        info.update(indicators)  # inject MA, RSI, MACD, ATR, etc.
+
 
     if not tracked:
         print(f"⚠️ No tracked stocks found in {file_to_load}")
