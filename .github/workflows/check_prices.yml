@@ -21,8 +21,7 @@ jobs:
       - name: Run price check
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python bot/decision_engine.py
-jobs:
+
   test-notify:
     runs-on: ubuntu-latest
     steps:
@@ -41,3 +40,5 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python bot/notify.py
+
+        run: python bot/decision_engine.py
