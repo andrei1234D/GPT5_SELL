@@ -1,33 +1,48 @@
 import json
-import os
-from datetime import datetime
+import csv
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), 'data.json')
+def load_data(file_path="bot/data.json"):
+    """
+    Load stock data from JSON or CSV file.
+    Returns a dictionary with ticker symbols as keys.
+    """
 
-def load_data():
-    if not os.path.exists(DATA_PATH):
-        print("📂 No existing data.json found, creating new one")
-        return {}
-    with open(DATA_PATH, 'r') as f:
-        try:
-            data = json.load(f)
-            print(f"📊 Loaded data: {data}")
+    try:
+        if file_path.endswith(".json"):
+            with open(file_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+
+        elif file_path.endswith(".csv"):
+            data = {}
+            with open(file_path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    ticker = row["ticker"]
+                    data[ticker] = {
+                        "buy_price": float(row["buy_price"]),
+                        "current_price": float(row.get("current_price", 0) or 0),
+                        "expected": row.get("expected", "HOLD").upper(),
+                        "volume": int(row.get("volume", 0)),
+                        "momentum": float(row.get("momentum", 0)),
+                        "rsi": float(row.get("rsi", 50)),
+                        "market_trend": row.get("market_trend", "NEUTRAL").upper(),
+                        "ma50": float(row.get("ma50", 0)),
+                        "ma200": float(row.get("ma200", 0)),
+                        "atr": float(row.get("atr", 0)),
+                        "macd": float(row.get("macd", 0)),
+                        "macd_signal": float(row.get("macd_signal", 0)),
+                        "bb_upper": float(row.get("bb_upper", 0)),
+                        "bb_lower": float(row.get("bb_lower", 0)),
+                        "resistance": float(row.get("resistance", 0)),
+                        "support": float(row.get("support", 0)),
+                        "active": True
+                    }
             return data
-        except json.JSONDecodeError:
-            print("⚠️ data.json is corrupted. Resetting.")
+
+        else:
+            print(f"⚠️ Unsupported file format: {file_path}")
             return {}
 
-def save_data(data):
-    with open(DATA_PATH, 'w') as f:
-        json.dump(data, f, indent=4)
-    print(f"💾 Saved data: {data}")
-
-def add_stock(ticker, buy_price):
-    data = load_data()
-    data[ticker] = {
-        "buy_price": buy_price,
-        "active": True,
-        "added_at": datetime.utcnow().isoformat()
-    }
-    save_data(data)
-    print(f"📈 Tracking {ticker} at ${buy_price:.2f}")
+    except Exception as e:
+        print(f"❌ Error loading {file_path}: {e}")
+        return {}

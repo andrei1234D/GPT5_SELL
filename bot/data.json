@@ -1,7 +1,22 @@
 {
-    "AAPL": {
-        "buy_price": 172.5,
-        "active": true,
-        "added_at": "2025-08-22T18:14:58.386015"
-    }
+  "AAPL": {
+    "buy_price": 172.5,
+    "active": true
+  },
+  "MSFT": {
+    "buy_price": 315.0,
+    "active": true
+  },
+  "TSLA": {
+    "buy_price": 250.0,
+    "active": true
+  },
+  "NVDA": {
+    "buy_price": 420.0,
+    "active": true
+  },
+  "AMZN": {
+    "buy_price": 132.0,
+    "active": true
+  }
 }

@@ -3,6 +3,7 @@ name: Daily GPT-5 Stock Sell Alert
 on:
   schedule:
     - cron: '0 * * * *' # every hour
+    - cron: '0 22 * * *' # every day at 22:00 UTC
   workflow_dispatch: # allow manual run
 
 jobs:
