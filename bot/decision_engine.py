@@ -29,8 +29,17 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
 
     pnl_pct = ((current_price - buy_price) / buy_price) * 100
 
+    # --- Smarter Stop Loss ---
     if pnl_pct <= -25:
-        return True, f"🛑 Stop Loss Triggered (-25%).", current_price
+        if rsi and rsi < 35:
+            return False, f"📈 Oversold at {rsi}, deep loss but HOLD (recovery likely).", current_price
+        if momentum and momentum >= 0:
+            return False, f"📈 Momentum stabilizing despite loss → HOLD.", current_price
+        if market_trend == "BULLISH":
+            return False, f"📈 Market bullish, avoid panic selling at deep loss.", current_price
+
+        return True, f"🛑 Smart Stop Loss Triggered (-25%) with weakness confirmed.", current_price
+
     if rsi and rsi > 75:
         return True, f"📉 RSI Extreme Overbought (>75).", current_price
     if rsi and rsi < 30:
