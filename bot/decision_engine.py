@@ -121,6 +121,14 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                     current_price = buy_price
             expected = info.get("expected", "HOLD")
 
+            # 🔎 Debug: Dump all values
+            print("\n🔎 DEBUG DATA DUMP ---------------------------")
+            print(f"Ticker: {ticker}")
+            for key, value in info.items():
+                print(f"  {key}: {value}")
+            print(f"  current_price (yf): {current_price}")
+            print("------------------------------------------------")
+
             decision, reason, _ = check_sell_conditions(
                 ticker, buy_price, current_price,
                 volume=info.get("volume"),
