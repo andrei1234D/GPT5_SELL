@@ -74,12 +74,6 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
 def run_decision_engine(test_mode=False, end_of_day=False):
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
     tracked = load_data(file_to_load)
-    indicators = compute_indicators(ticker)
-
-    if indicators:
-        current_price = indicators["current_price"]
-        info.update(indicators)  # inject MA, RSI, MACD, ATR, etc.
-
 
     if not tracked:
         print(f"⚠️ No tracked stocks found in {file_to_load}")
@@ -112,22 +106,16 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 continue
 
             buy_price = float(info["buy_price"])
-            current_price = float(info.get("current_price", 0) or 0)
 
-            # ✅ Fetch from Yahoo Finance if missing/invalid
-            if not current_price or current_price <= 0:
-                try:
-                    ticker_data = yf.Ticker(ticker)
-                    hist = ticker_data.history(period="1d")
-                    if not hist.empty:
-                        current_price = hist["Close"].iloc[-1]
-                        print(f"💹 Fetched live price for {ticker}: {current_price}")
-                    else:
-                        print(f"⚠️ No price data found for {ticker}, defaulting to buy_price")
-                        current_price = buy_price
-                except Exception as e:
-                    print(f"❌ Error fetching price for {ticker}: {e}")
-                    current_price = buy_price
+            # ✅ Fetch live indicators (price, RSI, MA, MACD, ATR, Bollinger)
+            indicators = compute_indicators(ticker)
+            if not indicators:
+                print(f"⚠️ Skipping {ticker}, no indicators fetched")
+                continue
+
+            current_price = indicators["current_price"]
+            info.update(indicators)  # inject MA, RSI, MACD, ATR, BB into info
+
             expected = info.get("expected", "HOLD")
 
             # 🔎 Debug: Dump all values
@@ -135,7 +123,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             print(f"Ticker: {ticker}")
             for key, value in info.items():
                 print(f"  {key}: {value}")
-            print(f"  current_price (yf): {current_price}")
             print("------------------------------------------------")
 
             decision, reason, _ = check_sell_conditions(
