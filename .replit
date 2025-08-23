@@ -1,0 +1,9 @@
+[run]
+command = "python bot/discord_listener.py"
+
+[packager]
+language = "python3"
+
+[[ports]]
+localPort = 8080
+externalPort = 80

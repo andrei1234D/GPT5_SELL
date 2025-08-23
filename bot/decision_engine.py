@@ -2,6 +2,7 @@ import argparse
 import yfinance as yf
 from tracker import load_data
 from notify import send_discord_alert
+
 from fetch_data import compute_indicators
 
 from datetime import datetime
