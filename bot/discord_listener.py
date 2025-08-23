@@ -3,6 +3,19 @@ import json
 import discord
 from discord.ext import commands
 from keep_alive import keep_alive
+import subprocess, sys
+
+
+
+required = ["discord.py", "requests"]
+for pkg in required:
+    try:
+        __import__(pkg.replace("-", "_").split(".")[0])
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
+
+
+
 
 DATA_FILE = "bot/data.json"
 keep_alive()
@@ -11,6 +24,8 @@ def load_data():
         with open(DATA_FILE, "r") as f:
             return json.load(f)
     return {"stocks": {}, "realized_pnl": 0.0}  # ✅ root has stocks + pnl
+
+
 
 def save_data(data):
     with open(DATA_FILE, "w") as f:
