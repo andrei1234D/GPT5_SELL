@@ -22,6 +22,7 @@ keep_alive()
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
+
             data = json.load(f)
 
         # 🔄 Auto-migrate old flat format to new structured format
@@ -71,6 +72,7 @@ async def buy(ctx, ticker: str, price: float, qty: int):
         "active": True
     }
     save_data(data)
+
     await ctx.send(f"✅ Now tracking **{ticker}** | Bought @ {price:.2f} $ | Qty: {qty} lei")
 
 @bot.command()
