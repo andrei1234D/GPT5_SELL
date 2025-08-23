@@ -9,7 +9,6 @@ import csv
 import os
 import json
 
-
 TRACKER_FILE = "bot/sell_alerts_tracker.json"
 
 def load_tracker():
@@ -30,7 +29,7 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
                           resistance=None, support=None,
                           debug=True):
 
-    pnl_pct = ((current_price - buy_price) / buy_price) * 100
+    pnl_pct = ((current_price - buy_price) / buy_price) * 100 if buy_price > 0 else 0
 
     # --- Smarter Stop Loss ---
     if pnl_pct <= -25:
@@ -75,18 +74,19 @@ def run_decision_engine(test_mode=False, end_of_day=False):
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
     tracked = load_data(file_to_load)
 
-    if not tracked:
+    if not tracked or "stocks" not in tracked:
         print(f"⚠️ No tracked stocks found in {file_to_load}")
         return
+
+    stocks = tracked["stocks"]
 
     tracker = load_tracker()
     today = datetime.utcnow().strftime("%Y-%m-%d")
 
-    # reset tracker if new day
     if tracker["date"] != today:
         tracker = {"date": today, "had_alerts": False}
 
-    total = len(tracked)
+    total = len(stocks)
     correct = 0
     sell_alerts = []
 
@@ -103,16 +103,15 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             "MACD", "MACD_Signal", "BB_Upper", "BB_Lower", "Resistance", "Support"
         ])
 
-        for ticker, info in tracked.items():
-            if not info.get("active", True):
-                continue
-
+        for ticker, info in stocks.items():
             buy_price = float(info["buy_price"])
-            lei_invested = float(info.get("lei_invested", 0))
+            lei_invested = float(info.get("invested_lei", 0))
+
+            if lei_invested <= 0:
+                continue
 
             qty = lei_invested / buy_price if buy_price > 0 else 0
 
-            # ✅ Fetch live indicators
             indicators = compute_indicators(ticker)
             if not indicators:
                 print(f"⚠️ Skipping {ticker}, no indicators fetched")
@@ -126,14 +125,13 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
             expected = info.get("expected", "HOLD")
 
-            # 🔎 Debug
             print("\n🔎 DEBUG DATA DUMP ---------------------------")
             print(f"Ticker: {ticker}")
             print(f"  Buy Price: {buy_price}")
             print(f"  Invested: {lei_invested} LEI")
             print(f"  Current Price: {current_price}")
             print(f"  Current Value: {current_value} LEI")
-            print(f"  PnL: {pnl_lei} LEI ({pnl_pct:.2f}%)")
+            print(f"  PnL: {pnl_lei:+.2f} LEI ({pnl_pct:.2f}%)")
             for key, value in indicators.items():
                 print(f"  {key}: {value}")
             print("------------------------------------------------")
@@ -183,13 +181,11 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 )
                 sell_alerts.append(alert_line)
 
-    # HOURLY alerts
     if sell_alerts and not test_mode and not end_of_day:
         full_message = "🚨 **SELL ALERTS TRIGGERED** 🚨\n\n" + "\n---\n".join(sell_alerts)
         send_discord_alert(message=full_message)
         tracker["had_alerts"] = True
 
-    # END OF DAY quirky message
     if end_of_day and not tracker["had_alerts"] and not test_mode:
         send_discord_alert(message="😎 No stocks to sell today. Business doing good, boss!")
 

@@ -2,28 +2,16 @@
   "stocks": {
     "AAPL": {
       "buy_price": 200.0,
-      "lei_invested": 4000.0
+      "invested_lei": 20.0
     },
     "MSFT": {
       "buy_price": 315.0,
-      "lei_invested": 1575.0
+      "invested_lei": 5.0
     },
     "YOURMOM": {
       "buy_price": 20.0,
-      "lei_invested": 4000.0
-    },
-    "AAPS": {
-      "buy_price": 175.0,
-      "qty": 10,
-      "active": true
-    },
-    "AUTOCOMMIT": {
-      "buy_price": 1.0,
-      "qty": 10,
-      "active": false,
-      "sell_price": 1.0,
-      "sell_qty": 10
+      "invested_lei": 200.0
     }
   },
-  "realized_pnl": 1715.0
+  "realized_pnl": 0.0
 }
