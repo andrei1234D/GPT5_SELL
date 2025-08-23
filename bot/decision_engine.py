@@ -2,7 +2,6 @@ import argparse
 import yfinance as yf
 from tracker import load_data
 from notify import send_discord_alert
-
 from fetch_data import compute_indicators
 
 from datetime import datetime
@@ -97,7 +96,9 @@ def run_decision_engine(test_mode=False, end_of_day=False):
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "Ticker", "Buy Price", "Current Price", "PnL %", "Decision", "Reason", "Expected",
+            "Ticker", "Buy Price", "Invested (LEI)", "Current Price",
+            "Current Value (LEI)", "PnL %", "PnL (LEI)",
+            "Decision", "Reason", "Expected",
             "Volume", "Momentum", "RSI", "Market Trend", "MA50", "MA200", "ATR",
             "MACD", "MACD_Signal", "BB_Upper", "BB_Lower", "Resistance", "Support"
         ])
@@ -107,22 +108,33 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 continue
 
             buy_price = float(info["buy_price"])
+            lei_invested = float(info.get("lei_invested", 0))
 
-            # ✅ Fetch live indicators (price, RSI, MA, MACD, ATR, Bollinger)
+            qty = lei_invested / buy_price if buy_price > 0 else 0
+
+            # ✅ Fetch live indicators
             indicators = compute_indicators(ticker)
             if not indicators:
                 print(f"⚠️ Skipping {ticker}, no indicators fetched")
                 continue
 
             current_price = indicators["current_price"]
-            info.update(indicators)  # inject MA, RSI, MACD, ATR, BB into info
+            current_value = current_price * qty
+            pnl_lei = current_value - lei_invested
+            pnl_pct = (pnl_lei / lei_invested) * 100 if lei_invested > 0 else 0
+            info.update(indicators)
 
             expected = info.get("expected", "HOLD")
 
-            # 🔎 Debug: Dump all values
+            # 🔎 Debug
             print("\n🔎 DEBUG DATA DUMP ---------------------------")
             print(f"Ticker: {ticker}")
-            for key, value in info.items():
+            print(f"  Buy Price: {buy_price}")
+            print(f"  Invested: {lei_invested} LEI")
+            print(f"  Current Price: {current_price}")
+            print(f"  Current Value: {current_value} LEI")
+            print(f"  PnL: {pnl_lei} LEI ({pnl_pct:.2f}%)")
+            for key, value in indicators.items():
                 print(f"  {key}: {value}")
             print("------------------------------------------------")
 
@@ -144,11 +156,11 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 debug=test_mode
             )
 
-            pnl_pct = ((current_price - buy_price) / buy_price) * 100
             decision_text = "SELL" if decision else "HOLD"
 
             writer.writerow([
-                ticker, f"{buy_price:.2f}", f"{current_price:.2f}", f"{pnl_pct:.2f}",
+                ticker, f"{buy_price:.2f}", f"{lei_invested:.2f}", f"{current_price:.2f}",
+                f"{current_value:.2f}", f"{pnl_pct:.2f}%", f"{pnl_lei:.2f}",
                 decision_text, reason, expected,
                 info.get("volume"), info.get("momentum"), info.get("rsi"), info.get("market_trend"),
                 info.get("ma50"), info.get("ma200"), info.get("atr"),
@@ -163,20 +175,21 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             if decision:
                 alert_line = (
                     f"**{ticker}**\n"
-                    f"Buy Price: ${buy_price:.2f}\n"
-                    f"Current Price: ${current_price:.2f}\n"
-                    f"PnL %: {pnl_pct:.2f}%\n"
+                    f"Buy Price: {buy_price:.2f}\n"
+                    f"Invested: {lei_invested:.2f} LEI\n"
+                    f"Current Value: {current_value:.2f} LEI\n"
+                    f"PnL: {pnl_lei:+.2f} LEI ({pnl_pct:.2f}%)\n"
                     f"Reason: {reason}\n"
                 )
                 sell_alerts.append(alert_line)
 
-    # HOURLY: Send alerts if any
+    # HOURLY alerts
     if sell_alerts and not test_mode and not end_of_day:
         full_message = "🚨 **SELL ALERTS TRIGGERED** 🚨\n\n" + "\n---\n".join(sell_alerts)
         send_discord_alert(message=full_message)
         tracker["had_alerts"] = True
 
-    # END OF DAY: send quirky message if no alerts all day
+    # END OF DAY quirky message
     if end_of_day and not tracker["had_alerts"] and not test_mode:
         send_discord_alert(message="😎 No stocks to sell today. Business doing good, boss!")
 

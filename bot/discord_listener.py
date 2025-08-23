@@ -22,8 +22,16 @@ keep_alive()
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+        if "stocks" not in data:
+            data = {"stocks": {}, "realized_pnl": 0.0}
+            save_data(data)
+        if "realized_pnl" not in data:
+            data["realized_pnl"] = 0.0
+            save_data(data)
+        return data
     return {"stocks": {}, "realized_pnl": 0.0}
+
 
 def save_data(data):
     with open(DATA_FILE, "w") as f:
@@ -36,7 +44,6 @@ def git_commit_and_push(message="Auto-update data.json from Discord bot"):
     try:
         subprocess.run(["git", "config", "--global", "user.email", "bot@replit.com"])
         subprocess.run(["git", "config", "--global", "user.name", "Replit Bot"])
-
         subprocess.run(["git", "add", "bot/data.json"], check=True)
         subprocess.run(["git", "commit", "-m", message], check=True)
         subprocess.run(["git", "push", "origin", "main"], check=True)
@@ -58,73 +65,79 @@ async def on_ready():
 # ---------------------------
 # Bot Commands
 # ---------------------------
-
 @bot.command()
 async def buy(ctx, ticker: str, price: float, lei_invested: float):
-    """Buy stock with given LEI amount, auto-averaging buy price if ticker exists"""
-    ticker = ticker.upper()
-    data = load_data()
-
-    if ticker in data["stocks"]:
-        # Weighted average calculation
-        old_price = data["stocks"][ticker]["buy_price"]
-        old_invested = data["stocks"][ticker]["lei_invested"]
-
-        new_avg_price = (
-            (old_price * old_invested) + (price * lei_invested)
-        ) / (old_invested + lei_invested)
-
-        data["stocks"][ticker]["buy_price"] = new_avg_price
-        data["stocks"][ticker]["lei_invested"] += lei_invested
-        data["stocks"][ticker]["active"] = True
-        msg = f"📈 Averaged buy for **{ticker}** | New Avg: {new_avg_price:.2f} LEI | Total Invested: {data['stocks'][ticker]['lei_invested']:.2f} LEI"
-    else:
-        data["stocks"][ticker] = {
-            "buy_price": price,
-            "lei_invested": lei_invested,
-            "active": True
-        }
-        msg = f"✅ Bought **{ticker}** @ {price:.2f} | Invested: {lei_invested:.2f} LEI"
-
-    save_data(data)
-    git_commit_and_push(f"Bought {lei_invested} LEI of {ticker} at {price}")
-    await ctx.send(msg)
-
-
-@bot.command()
-async def sell(ctx, ticker: str, price: float, lei_to_sell: float):
-    """Sell stock by specifying LEI amount to sell"""
+    """
+    Buy a stock with LEI invested at a price.
+    Example: !buy AAPL 125 200  (→ 200 LEI invested at 125)
+    """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
 
-    if ticker not in stocks or not stocks[ticker].get("active", True):
+    if ticker in stocks and stocks[ticker]["active"]:
+        old_price = stocks[ticker]["buy_price"]
+        old_invested = stocks[ticker]["lei_invested"]
+
+        # Weighted average new price
+        new_invested = old_invested + lei_invested
+        avg_price = ((old_price * (old_invested / old_price)) + (price * (lei_invested / price))) / ((old_invested / old_price) + (lei_invested / price))
+
+        stocks[ticker]["buy_price"] = avg_price
+        stocks[ticker]["lei_invested"] = new_invested
+    else:
+        stocks[ticker] = {
+            "buy_price": price,
+            "lei_invested": lei_invested,
+            "active": True
+        }
+
+    save_data(data)
+    git_commit_and_push(f"Bought {ticker} {lei_invested} LEI at {price}")
+    await ctx.send(f"✅ Now tracking **{ticker}** | Avg Buy Price: {stocks[ticker]['buy_price']:.2f} | Invested: {stocks[ticker]['lei_invested']:.2f} LEI")
+
+
+@bot.command()
+async def sell(ctx, ticker: str, price: float, lei_sold: float):
+    """
+    Sell a stock for LEI.
+    Example: !sell AAPL 140 100  (→ Sell 100 LEI worth at 140)
+    """
+    ticker = ticker.upper()
+    data = load_data()
+    stocks = data["stocks"]
+
+    if ticker not in stocks or not stocks[ticker]["active"]:
         await ctx.send(f"⚠️ {ticker} is not being tracked or already sold.")
         return
 
     buy_price = stocks[ticker]["buy_price"]
     invested = stocks[ticker]["lei_invested"]
 
-    if lei_to_sell > invested:
-        await ctx.send(f"⚠️ Cannot sell {lei_to_sell}, only {invested:.2f} LEI invested.")
+    if lei_sold > invested:
+        await ctx.send(f"⚠️ Cannot sell {lei_sold}, only {invested:.2f} LEI invested.")
         return
 
-    # Calculate PnL (proportional to LEI sold)
-    pnl_pct = (price - buy_price) / buy_price
-    total_pnl = pnl_pct * lei_to_sell
+    # Calculate shares from LEI
+    qty_sold = lei_sold / buy_price
+    pnl_per_share = price - buy_price
+    total_pnl = pnl_per_share * qty_sold
     data["realized_pnl"] += total_pnl
 
-    # Reduce or remove ticker
-    if lei_to_sell == invested:
-        del data["stocks"][ticker]
-        msg = f"💸 Fully sold **{ticker}** @ {price:.2f} | Sold {lei_to_sell:.2f} LEI | PnL: {total_pnl:.2f} LEI\n📊 Realized PnL: {data['realized_pnl']:.2f} LEI"
-    else:
-        stocks[ticker]["lei_invested"] -= lei_to_sell
-        msg = f"💸 Partially sold **{ticker}** @ {price:.2f} | Sold {lei_to_sell:.2f} LEI | Remaining: {stocks[ticker]['lei_invested']:.2f} LEI | PnL: {total_pnl:.2f} LEI\n📊 Realized PnL: {data['realized_pnl']:.2f} LEI"
+    # Update investment
+    stocks[ticker]["lei_invested"] -= lei_sold
+    if stocks[ticker]["lei_invested"] <= 0:
+        del stocks[ticker]  # remove stock if fully sold
 
     save_data(data)
-    git_commit_and_push(f"Sold {lei_to_sell} LEI of {ticker} at {price}")
-    await ctx.send(msg)
+    git_commit_and_push(f"Sold {lei_sold} LEI of {ticker} at {price}")
+
+    await ctx.send(
+        f"💸 Sold **{ticker}**\n"
+        f"Sell Price: {price:.2f} | Amount Sold: {lei_sold:.2f} LEI\n"
+        f"PnL: {total_pnl:+.2f} LEI\n"
+        f"📊 Cumulative Realized PnL: {data['realized_pnl']:.2f} LEI"
+    )
 
 
 @bot.command()
@@ -135,11 +148,10 @@ async def list(ctx):
     if not stocks:
         await ctx.send("📭 No stocks currently tracked.")
         return
-
     msg = "**📊 Currently Tracked Stocks:**\n"
     for t, info in stocks.items():
         status = "✅ ACTIVE" if info.get("active", True) else "❌ INACTIVE"
-        msg += f"- {t}: Avg Buy @ {info['buy_price']:.2f} | Invested: {info['lei_invested']:.2f} LEI ({status})\n"
+        msg += f"- {t}: Avg Buy Price: {info['buy_price']:.2f} | Invested: {info['lei_invested']:.2f} LEI ({status})\n"
     msg += f"\n💰 **Cumulative Realized PnL:** {data['realized_pnl']:.2f} LEI"
     await ctx.send(msg)
 
@@ -149,6 +161,7 @@ async def pnl(ctx):
     """Show cumulative realized PnL"""
     data = load_data()
     await ctx.send(f"💰 **Cumulative Realized PnL:** {data['realized_pnl']:.2f} LEI")
+
 
 # ---------------------------
 # Run Bot
