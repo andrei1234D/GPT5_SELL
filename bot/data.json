@@ -14,6 +14,19 @@
       "buy_price": 20.0,
       "qty": 200,
       "active": true
+    },
+    "KELAKMOM": {
+      "buy_price": 0.1,
+      "qty": 1,
+      "active": false,
+      "sell_price": 10.0,
+      "sell_qty": 1
+    },
+    "KELAJMOM": {
+      "buy_price": 0.01,
+      "qty": 5,
+      "active": true
     }
-  }
+  },
+  "realized_pnl": 9.9
 }
