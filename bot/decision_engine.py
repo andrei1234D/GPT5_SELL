@@ -11,15 +11,18 @@ import json
 
 TRACKER_FILE = "bot/sell_alerts_tracker.json"
 
+
 def load_tracker():
     if os.path.exists(TRACKER_FILE):
         with open(TRACKER_FILE, "r") as f:
             return json.load(f)
     return {"date": datetime.utcnow().strftime("%Y-%m-%d"), "had_alerts": False}
 
+
 def save_tracker(data):
     with open(TRACKER_FILE, "w") as f:
         json.dump(data, f)
+
 
 def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
                           volume=None, momentum=None, rsi=None, market_trend=None,
@@ -31,7 +34,6 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
 
     pnl_pct = ((current_price - buy_price) / buy_price) * 100 if buy_price > 0 else 0
 
-    # --- Smarter Stop Loss ---
     if pnl_pct <= -25:
         if rsi and rsi < 35:
             return False, f"📈 Oversold at {rsi}, deep loss but HOLD (recovery likely).", current_price
@@ -39,7 +41,6 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
             return False, f"📈 Momentum stabilizing despite loss → HOLD.", current_price
         if market_trend == "BULLISH":
             return False, f"📈 Market bullish, avoid panic selling at deep loss.", current_price
-
         return True, f"🛑 Smart Stop Loss Triggered (-25%) with weakness confirmed.", current_price
 
     if rsi and rsi > 75:
@@ -79,7 +80,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         return
 
     stocks = tracked["stocks"]
-
     tracker = load_tracker()
     today = datetime.utcnow().strftime("%Y-%m-%d")
 
@@ -104,13 +104,14 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         ])
 
         for ticker, info in stocks.items():
-            buy_price = float(info["buy_price"])
+            buy_price = float(info.get("buy_price", 0))
             lei_invested = float(info.get("invested_lei", 0))
 
-            if lei_invested <= 0:
+            if buy_price <= 0 or lei_invested <= 0:
+                print(f"⚠️ Skipping {ticker}, invalid buy_price or invested_lei")
                 continue
 
-            qty = lei_invested / buy_price if buy_price > 0 else 0
+            qty = lei_invested / buy_price
 
             indicators = compute_indicators(ticker)
             if not indicators:

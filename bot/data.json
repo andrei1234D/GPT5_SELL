@@ -1,9 +1,6 @@
 {
   "stocks": {
-    "AAPL": {
-      "buy_price": 200.0,
-      "invested_lei": 20.0
-    },
+
     "MSFT": {
       "buy_price": 315.0,
       "invested_lei": 5.0

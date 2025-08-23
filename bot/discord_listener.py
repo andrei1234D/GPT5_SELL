@@ -23,12 +23,14 @@ def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
+
         if "stocks" not in data:
             data = {"stocks": {}, "realized_pnl": 0.0}
             save_data(data)
         if "realized_pnl" not in data:
             data["realized_pnl"] = 0.0
             save_data(data)
+
         return data
     return {"stocks": {}, "realized_pnl": 0.0}
 
@@ -89,7 +91,7 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         old_price = stocks[ticker]["buy_price"]
         old_invested = stocks[ticker]["invested_lei"]
 
-        # Weighted average new price
+        # Weighted average buy price
         new_invested = old_invested + lei_invested
         avg_price = ((old_price * old_invested) + (price * lei_invested)) / new_invested
 
@@ -127,7 +129,7 @@ async def sell(ctx, ticker: str, price: float, lei_sold: float):
         await ctx.send(f"⚠️ Cannot sell {lei_sold}, only {invested:.2f} LEI invested.")
         return
 
-    # Calculate PnL
+    # Calculate realized PnL
     qty_sold = lei_sold / buy_price
     pnl_per_share = price - buy_price
     total_pnl = pnl_per_share * qty_sold
