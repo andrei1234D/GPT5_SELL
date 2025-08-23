@@ -2,33 +2,16 @@
   "stocks": {
     "AAPL": {
       "buy_price": 200.0,
-      "qty": 20,
-      "active": true
+      "lei_invested": 4000.0
     },
     "MSFT": {
       "buy_price": 315.0,
-      "qty": 5,
-      "active": true
+      "lei_invested": 1575.0
     },
     "YOURMOM": {
       "buy_price": 20.0,
-      "qty": 200,
-      "active": true
-    },
-    "KELAKMOM": {
-      "buy_price": 0.1,
-      "qty": 1,
-      "active": false,
-      "sell_price": 10.0,
-      "sell_qty": 1
-    },
-    "KELAJMOM": {
-      "buy_price": 0.01,
-      "qty": 10,
-      "active": false,
-      "sell_price": 170.52,
-      "sell_qty": 10
+      "lei_invested": 4000.0
     }
   },
-  "realized_pnl": 1715.0000000000002
+  "realized_pnl": 1715.0
 }
