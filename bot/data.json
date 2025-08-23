@@ -11,6 +11,18 @@
     "YOURMOM": {
       "buy_price": 20.0,
       "lei_invested": 4000.0
+    },
+    "AAPS": {
+      "buy_price": 175.0,
+      "qty": 10,
+      "active": true
+    },
+    "AUTOCOMMIT": {
+      "buy_price": 1.0,
+      "qty": 10,
+      "active": false,
+      "sell_price": 1.0,
+      "sell_qty": 10
     }
   },
   "realized_pnl": 1715.0

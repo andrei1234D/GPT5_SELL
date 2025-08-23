@@ -42,14 +42,25 @@ def save_data(data):
 # ---------------------------
 def git_commit_and_push(message="Auto-update data.json from Discord bot"):
     try:
+        GH_TOKEN = os.getenv("GH_TOKEN")
+        if not GH_TOKEN:
+            print("⚠️ GitHub token not set in secrets (GH_TOKEN)")
+            return
+
+        repo_url = f"https://andrei1234D:{GH_TOKEN}@github.com/andrei1234D/GPT5_SELL.git"
+
         subprocess.run(["git", "config", "--global", "user.email", "bot@replit.com"])
         subprocess.run(["git", "config", "--global", "user.name", "Replit Bot"])
+        subprocess.run(["git", "remote", "set-url", "origin", repo_url], check=True)
+
         subprocess.run(["git", "add", "bot/data.json"], check=True)
         subprocess.run(["git", "commit", "-m", message], check=True)
         subprocess.run(["git", "push", "origin", "main"], check=True)
+
         print("✅ Auto-committed and pushed data.json")
     except Exception as e:
         print(f"⚠️ Git push failed: {e}")
+
 
 # ---------------------------
 # Discord Bot Setup
