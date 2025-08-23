@@ -120,6 +120,48 @@ async def sell(ctx, ticker: str, price: float, lei: float):
 
     buy_price = stocks[ticker]["buy_price"]
     lei_invested = stocks[ticker]["lei_invested"]
+
+    if lei > lei_invested:
+        await ctx.send(f"⚠️ Cannot sell {lei} LEI, only {lei_invested:.2f} LEI invested.")
+        return
+
+    shares_sold = round(lei / buy_price, 4)
+    pnl_per_share = price - buy_price
+    total_pnl = pnl_per_share * shares_sold
+
+    # Deduct from holdings
+    stocks[ticker]["lei_invested"] -= lei
+    stocks[ticker]["shares"] -= shares_sold
+
+    # If fully sold → delete ticker
+    fully_sold = stocks[ticker]["lei_invested"] <= 0.01 or stocks[ticker]["shares"] <= 0.0001
+    if fully_sold:
+        del stocks[ticker]  # 👈 remove completely
+
+    data["realized_pnl"] += total_pnl
+
+    save_data(data)
+    git_commit_and_push(f"Sold {ticker} for {lei} LEI at {price}")
+
+    await ctx.send(
+        f"💸 Sold **{ticker}**\n"
+        f"Sell Amount: {lei:.2f} LEI ({shares_sold:.4f} shares)\n"
+        f"Buy Price: {buy_price:.2f} | Sell Price: {price:.2f}\n"
+        f"PnL/share: {pnl_per_share:.2f} | Total PnL: {total_pnl:.2f} LEI\n"
+        f"{'🗑️ Removed from tracking (fully sold)' if fully_sold else '📊 Still tracking remaining position'}\n"
+        f"📊 Cumulative Realized PnL: {data['realized_pnl']:.2f} LEI"
+    )
+    """Sell stock: price per share, lei amount to sell"""
+    ticker = ticker.upper()
+    data = load_data()
+    stocks = data["stocks"]
+
+    if ticker not in stocks or not stocks[ticker].get("active", True):
+        await ctx.send(f"⚠️ {ticker} is not being tracked or already sold.")
+        return
+
+    buy_price = stocks[ticker]["buy_price"]
+    lei_invested = stocks[ticker]["lei_invested"]
     shares_total = stocks[ticker]["shares"]
 
     if lei > lei_invested:
