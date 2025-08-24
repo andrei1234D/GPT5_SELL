@@ -1,5 +1,4 @@
-[run]
-command = "python bot/discord_listener.py"
+run = "chmod +x chisel && ./chisel server --port 9000 --reverse & PYTHONPATH=$HOME/.local/lib/python3.10/site-packages python bot/discord_listener.py"
 
 [packager]
 language = "python3"
@@ -7,3 +6,14 @@ language = "python3"
 [[ports]]
 localPort = 8080
 externalPort = 80
+
+[[ports]]
+localPort = 9000
+externalPort = 443
+
+
+#Makes environment work:
+
+# python -m pip install --user --upgrade discord.py requests flask yfinance
+
+#PYTHONPATH=$HOME/.local/lib/python3.10/site-packages python bot/discord_listener.py
