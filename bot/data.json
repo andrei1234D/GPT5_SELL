@@ -1,16 +1,14 @@
 {
   "stocks": {
-    "MSFT": {
-      "buy_price": 315.0,
-      "invested_lei": 5.0
-    },
-    "YOURMOM": {
-      "buy_price": 20.0,
+    "AAPL": {
+      "avg_price": 20.0,
+      "shares": 10.0,
       "invested_lei": 200.0
     },
-    "AAPL": {
-      "buy_price": 20.0,
-      "invested_lei": 180.0
+    "MSFT": {
+      "avg_price": 315.0,
+      "shares": 0.016,
+      "invested_lei": 5.0
     }
   },
   "realized_pnl": 0.0

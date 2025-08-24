@@ -94,10 +94,12 @@ async def on_ready():
 # ---------------------------
 # Bot Commands
 # ---------------------------
-
 @bot.command()
 async def buy(ctx, ticker: str, price: float, lei_invested: float):
-    """ Buy stock (supports reducing short positions if negative). """
+    """
+    Buy stock (adds shares).
+    Example: !buy AAPL 125 200  -> Buys 200 LEI worth of AAPL at 125
+    """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
@@ -105,46 +107,41 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
     shares_bought = lei_invested / price
 
     if ticker in stocks:
-        stock = stocks[ticker]
-        prev_shares = stock.get("shares", 0)
+        old_shares = stocks[ticker]["shares"]
+        old_invested = stocks[ticker]["invested_lei"]
 
-        # If currently short and buying → reduce short or flip to long
-        if prev_shares < 0:
-            new_shares = prev_shares + shares_bought
-            stock["shares"] = new_shares
-            stock["invested_lei"] = new_shares * price
-            if new_shares > 0:
-                stock["buy_price"] = price
+        new_shares = old_shares + shares_bought
+        new_invested = old_invested + lei_invested
+
+        # Weighted average price
+        if new_shares != 0:
+            avg_price = ((old_shares * stocks[ticker]["avg_price"]) + (shares_bought * price)) / new_shares
         else:
-            # Normal averaging when long
-            old_price = stock["buy_price"]
-            old_shares = stock["shares"]
+            avg_price = 0  
 
-            new_shares = old_shares + shares_bought
-            avg_price = ((old_price * old_shares) + (price * shares_bought)) / new_shares
-
-            stock["buy_price"] = avg_price
-            stock["shares"] = new_shares
-            stock["invested_lei"] = new_shares * avg_price
-    else:
-        # New long position
         stocks[ticker] = {
-            "buy_price": price,
+            "avg_price": avg_price,
+            "shares": new_shares,
+            "invested_lei": new_invested
+        }
+    else:
+        stocks[ticker] = {
+            "avg_price": price,
             "shares": shares_bought,
             "invested_lei": lei_invested
         }
 
     save_data(data)
     push_to_github(DATA_FILE, f"Bought {lei_invested} LEI of {ticker} at {price}")
-    await ctx.send(
-        f"✅ Now tracking **{ticker}** | Avg Buy Price: {stocks[ticker]['buy_price']:.2f} | "
-        f"Shares: {stocks[ticker]['shares']:.2f} | Invested: {stocks[ticker]['invested_lei']:.2f} LEI"
-    )
+    await ctx.send(f"✅ Bought **{shares_bought:.2f} shares** of {ticker} @ {price:.2f} | Total Shares: {stocks[ticker]['shares']:.2f}")
 
 
 @bot.command()
 async def sell(ctx, ticker: str, price: float, lei_sold: float):
-    """ Sell stock (supports shorting if selling more than you own). """
+    """
+    Sell stock (subtracts shares, supports shorting).
+    Example: !sell AAPL 140 100 -> Sell 100 LEI worth of AAPL at 140
+    """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
@@ -152,44 +149,41 @@ async def sell(ctx, ticker: str, price: float, lei_sold: float):
     shares_sold = lei_sold / price
 
     if ticker not in stocks:
-        # New short position
+        # Initialize as short position
         stocks[ticker] = {
-            "buy_price": price,
+            "avg_price": price,
             "shares": -shares_sold,
             "invested_lei": -lei_sold
         }
         save_data(data)
-        push_to_github(DATA_FILE, f"Opened short: Sold {lei_sold} LEI of {ticker} at {price}")
-        await ctx.send(f"📉 Opened short position in **{ticker}** | Sold {lei_sold:.2f} LEI at {price:.2f}")
+        push_to_github(DATA_FILE, f"Opened short of {lei_sold} LEI ({shares_sold:.2f} shares) on {ticker} at {price}")
+        await ctx.send(f"📉 Opened short on **{ticker}**: {shares_sold:.2f} shares @ {price:.2f}")
         return
 
-    stock = stocks[ticker]
-    prev_shares = stock.get("shares", 0)
+    old_shares = stocks[ticker]["shares"]
+    avg_price = stocks[ticker]["avg_price"]
 
-    # Calculate PnL for this sale
-    pnl_per_share = price - stock["buy_price"]
-    total_pnl = pnl_per_share * shares_sold
-    data["realized_pnl"] += total_pnl
+    # PnL from this sale
+    pnl = (price - avg_price) * shares_sold
+    data["realized_pnl"] += pnl
 
     # Update shares
-    new_shares = prev_shares - shares_sold
-    stock["shares"] = new_shares
-    stock["invested_lei"] = new_shares * price
-    if new_shares < 0:  # went short
-        stock["buy_price"] = price
+    new_shares = old_shares - shares_sold
 
-    if abs(new_shares) < 1e-6:
-        del stocks[ticker]  # position fully closed
+    stocks[ticker]["shares"] = new_shares
+    stocks[ticker]["invested_lei"] = new_shares * avg_price  # keep consistent
+
+    if new_shares == 0:
+        del stocks[ticker]  # fully closed position
 
     save_data(data)
     push_to_github(DATA_FILE, f"Sold {lei_sold} LEI ({shares_sold:.2f} shares) of {ticker} at {price}")
 
     await ctx.send(
-        f"💸 Sold **{ticker}**\n"
-        f"Sell Price: {price:.2f} | Amount Sold: {lei_sold:.2f} LEI ({shares_sold:.2f} shares)\n"
-        f"PnL: {total_pnl:+.2f} LEI\n"
-        f"📊 Cumulative Realized PnL: {data['realized_pnl']:.2f} LEI\n"
-        f"Remaining Shares: {new_shares:.2f}"
+        f"💸 Sold **{shares_sold:.2f} shares** of {ticker} @ {price:.2f}\n"
+        f"📊 Realized PnL: {pnl:+.2f} LEI\n"
+        f"🔢 Remaining Shares: {new_shares:.2f}\n"
+        f"💰 Total Realized PnL: {data['realized_pnl']:.2f} LEI"
     )
 
 
