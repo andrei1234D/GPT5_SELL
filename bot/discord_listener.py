@@ -181,5 +181,8 @@ if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERROR: DISCORD_BOT_TOKEN is not set")
     else:
-        keep_alive()
+        from threading import Thread
+        # Run keep_alive in a background thread
+        Thread(target=keep_alive).start()
         bot.run(TOKEN)
+
