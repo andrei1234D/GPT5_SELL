@@ -15,3 +15,4 @@ EXPOSE 8080
 
 # Run your bot (same command as in .replit)
 CMD ["python", "bot/discord_listener.py"]
+
