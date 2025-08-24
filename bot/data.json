@@ -7,10 +7,6 @@
     "YOURMOM": {
       "buy_price": 20.0,
       "invested_lei": 200.0
-    },
-    "AAPL": {
-      "buy_price": 20.0,
-      "invested_lei": 100.0
     }
   },
   "realized_pnl": 0.0
