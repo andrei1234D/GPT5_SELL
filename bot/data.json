@@ -5,9 +5,10 @@
       "shares": 10.0,
       "invested_lei": 200.0
     },
-    "AAPL": {
-      "buy_price": 20.0,
-      "invested_lei": 180.0
+    "MSFT": {
+      "avg_price": 260.0,
+      "shares": 12.0,
+      "invested_lei": 200.0
     }
   },
   "realized_pnl": 0.0
