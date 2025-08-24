@@ -8,13 +8,9 @@
       "buy_price": 20.0,
       "invested_lei": 200.0
     },
-    "FINALLYWORKING": {
+    "AAPL": {
       "buy_price": 20.0,
-      "invested_lei": 20.0
-    },
-    "AMD": {
-      "buy_price": 10.0,
-      "invested_lei": 20.0
+      "invested_lei": 80.0
     },
     "AMZN": {
       "buy_price": 20.0,
