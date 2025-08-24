@@ -4,6 +4,9 @@ import discord
 from discord.ext import commands
 from keep_alive import keep_alive
 import subprocess, sys
+import base64
+import requests
+from threading import Thread
 
 # ✅ Auto-install required packages if missing
 required = ["discord.py", "requests"]
@@ -40,28 +43,42 @@ def save_data(data):
         json.dump(data, f, indent=2)
 
 # ---------------------------
-# Git Auto Commit/Push
+# GitHub API Push
 # ---------------------------
-def git_commit_and_push(message="Auto-update data.json from Discord bot"):
+def push_to_github(file_path, commit_message="Auto-update data.json from Discord bot"):
     try:
         GH_TOKEN = os.getenv("GH_TOKEN")
         if not GH_TOKEN:
             print("⚠️ GitHub token not set in secrets (GH_TOKEN)")
             return
 
-        repo_url = f"https://andrei1234D:{GH_TOKEN}@github.com/andrei1234D/GPT5_SELL.git"
+        repo = "andrei1234D/GPT5_SELL"
+        branch = "main"
+        api_url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
 
-        subprocess.run(["git", "config", "--global", "user.email", "bot@replit.com"])
-        subprocess.run(["git", "config", "--global", "user.name", "Replit Bot"])
-        subprocess.run(["git", "remote", "set-url", "origin", repo_url], check=True)
+        with open(file_path, "r") as f:
+            content = f.read()
 
-        subprocess.run(["git", "add", "bot/data.json"], check=True)
-        subprocess.run(["git", "commit", "-m", message], check=True)
-        subprocess.run(["git", "push", "origin", "main"], check=True)
+        # Get current file SHA
+        r = requests.get(api_url, headers={"Authorization": f"token {GH_TOKEN}"})
+        sha = r.json().get("sha")
 
-        print("✅ Auto-committed and pushed data.json")
+        # Prepare payload
+        data = {
+            "message": commit_message,
+            "content": base64.b64encode(content.encode()).decode(),
+            "branch": branch
+        }
+        if sha:
+            data["sha"] = sha
+
+        res = requests.put(api_url, json=data, headers={"Authorization": f"token {GH_TOKEN}"})
+        if res.status_code in [200, 201]:
+            print("✅ Pushed data.json to GitHub")
+        else:
+            print("❌ GitHub push failed:", res.text)
     except Exception as e:
-        print(f"⚠️ Git push failed: {e}")
+        print(f"⚠️ Error pushing to GitHub: {e}")
 
 # ---------------------------
 # Discord Bot Setup
@@ -79,10 +96,6 @@ async def on_ready():
 # ---------------------------
 @bot.command()
 async def buy(ctx, ticker: str, price: float, lei_invested: float):
-    """
-    Buy a stock with LEI invested at a price.
-    Example: !buy AAPL 125 200  (→ 200 LEI invested at 125)
-    """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
@@ -91,7 +104,6 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         old_price = stocks[ticker]["buy_price"]
         old_invested = stocks[ticker]["invested_lei"]
 
-        # Weighted average buy price
         new_invested = old_invested + lei_invested
         avg_price = ((old_price * old_invested) + (price * lei_invested)) / new_invested
 
@@ -104,16 +116,12 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         }
 
     save_data(data)
-    git_commit_and_push(f"Bought {lei_invested} LEI of {ticker} at {price}")
+    push_to_github(DATA_FILE, f"Bought {lei_invested} LEI of {ticker} at {price}")
     await ctx.send(f"✅ Now tracking **{ticker}** | Avg Buy Price: {stocks[ticker]['buy_price']:.2f} | Invested: {stocks[ticker]['invested_lei']:.2f} LEI")
 
 
 @bot.command()
 async def sell(ctx, ticker: str, price: float, lei_sold: float):
-    """
-    Sell a stock for LEI.
-    Example: !sell AAPL 140 100  (→ Sell 100 LEI worth at 140)
-    """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
@@ -129,19 +137,17 @@ async def sell(ctx, ticker: str, price: float, lei_sold: float):
         await ctx.send(f"⚠️ Cannot sell {lei_sold}, only {invested:.2f} LEI invested.")
         return
 
-    # Calculate realized PnL
     qty_sold = lei_sold / buy_price
     pnl_per_share = price - buy_price
     total_pnl = pnl_per_share * qty_sold
     data["realized_pnl"] += total_pnl
 
-    # Update investment
     stocks[ticker]["invested_lei"] -= lei_sold
     if stocks[ticker]["invested_lei"] <= 0:
-        del stocks[ticker]  # delete if fully sold
+        del stocks[ticker]
 
     save_data(data)
-    git_commit_and_push(f"Sold {lei_sold} LEI of {ticker} at {price}")
+    push_to_github(DATA_FILE, f"Sold {lei_sold} LEI of {ticker} at {price}")
 
     await ctx.send(
         f"💸 Sold **{ticker}**\n"
@@ -153,7 +159,6 @@ async def sell(ctx, ticker: str, price: float, lei_sold: float):
 
 @bot.command()
 async def list(ctx):
-    """List all tracked stocks"""
     data = load_data()
     stocks = data["stocks"]
     if not stocks:
@@ -168,7 +173,6 @@ async def list(ctx):
 
 @bot.command()
 async def pnl(ctx):
-    """Show cumulative realized PnL"""
     data = load_data()
     await ctx.send(f"💰 **Cumulative Realized PnL:** {data['realized_pnl']:.2f} LEI")
 
@@ -181,8 +185,5 @@ if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERROR: DISCORD_BOT_TOKEN is not set")
     else:
-        from threading import Thread
-        # Run keep_alive in a background thread
         Thread(target=keep_alive).start()
         bot.run(TOKEN)
-
