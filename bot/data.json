@@ -1,14 +1,24 @@
 {
   "stocks": {
-    "AAPL": {
-      "avg_price": 20.0,
-      "shares": 10.0,
+    "MSFT": {
+      "buy_price": 315.0,
+      "invested_lei": 5.0
+    },
+    "YOURMOM": {
+      "buy_price": 20.0,
       "invested_lei": 200.0
     },
-    "MSFT": {
-      "avg_price": 260.0,
-      "shares": 12.0,
-      "invested_lei": 200.0
+    "FINALLYWORKING": {
+      "buy_price": 20.0,
+      "invested_lei": 20.0
+    },
+    "AMD": {
+      "buy_price": 10.0,
+      "invested_lei": 20.0
+    },
+    "AMZN": {
+      "buy_price": 20.0,
+      "invested_lei": 100.0
     }
   },
   "realized_pnl": 0.0
