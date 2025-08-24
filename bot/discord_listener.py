@@ -17,44 +17,44 @@ for pkg in required:
         subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
 
 DATA_FILE = "bot/data.json"
+REPO = "andrei1234D/GPT5_SELL"
+BRANCH = "main"
 keep_alive()
 
 # ---------------------------
-# Data Management
+# GitHub Sync Helpers
 # ---------------------------
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            data = json.load(f)
-
-        if "stocks" not in data:
-            data = {"stocks": {}, "realized_pnl": 0.0}
-            save_data(data)
-        if "realized_pnl" not in data:
-            data["realized_pnl"] = 0.0
-            save_data(data)
-
-        return data
-    return {"stocks": {}, "realized_pnl": 0.0}
-
-
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
-# ---------------------------
-# GitHub API Push
-# ---------------------------
-def push_to_github(file_path, commit_message="Auto-update data.json from Discord bot"):
+def pull_from_github(file_path):
+    """Download latest version of file from GitHub"""
     try:
         GH_TOKEN = os.getenv("GH_TOKEN")
         if not GH_TOKEN:
             print("⚠️ GitHub token not set in secrets (GH_TOKEN)")
             return
 
-        repo = "andrei1234D/GPT5_SELL"
-        branch = "main"
-        api_url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+        api_url = f"https://api.github.com/repos/{REPO}/contents/{file_path}?ref={BRANCH}"
+        res = requests.get(api_url, headers={"Authorization": f"token {GH_TOKEN}"})
+
+        if res.status_code == 200:
+            content = base64.b64decode(res.json()["content"]).decode()
+            with open(file_path, "w") as f:
+                f.write(content)
+            print("⬇️ Pulled latest data.json from GitHub")
+        else:
+            print(f"⚠️ Failed to pull from GitHub: {res.text}")
+    except Exception as e:
+        print(f"⚠️ Error pulling from GitHub: {e}")
+
+
+def push_to_github(file_path, commit_message="Auto-update data.json from Discord bot"):
+    """Push updated file to GitHub"""
+    try:
+        GH_TOKEN = os.getenv("GH_TOKEN")
+        if not GH_TOKEN:
+            print("⚠️ GitHub token not set in secrets (GH_TOKEN)")
+            return
+
+        api_url = f"https://api.github.com/repos/{REPO}/contents/{file_path}"
 
         with open(file_path, "r") as f:
             content = f.read()
@@ -67,7 +67,7 @@ def push_to_github(file_path, commit_message="Auto-update data.json from Discord
         data = {
             "message": commit_message,
             "content": base64.b64encode(content.encode()).decode(),
-            "branch": branch
+            "branch": BRANCH
         }
         if sha:
             data["sha"] = sha
@@ -79,6 +79,34 @@ def push_to_github(file_path, commit_message="Auto-update data.json from Discord
             print("❌ GitHub push failed:", res.text)
     except Exception as e:
         print(f"⚠️ Error pushing to GitHub: {e}")
+
+# ---------------------------
+# Data Management
+# ---------------------------
+def load_data():
+    pull_from_github(DATA_FILE)  # Always sync before reading
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                print("⚠️ Corrupted JSON, resetting file")
+                data = {"stocks": {}, "realized_pnl": 0.0}
+                save_data(data)
+                return data
+
+        if "stocks" not in data:
+            data["stocks"] = {}
+        if "realized_pnl" not in data:
+            data["realized_pnl"] = 0.0
+
+        return data
+    return {"stocks": {}, "realized_pnl": 0.0}
+
+
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
 # ---------------------------
 # Discord Bot Setup
@@ -135,7 +163,7 @@ async def sell(ctx, ticker: str, price: float, lei_sold: float):
 
     if lei_sold > invested:
         await ctx.send(f"⚠️ Cannot sell {lei_sold}, only {invested:.2f} LEI invested.")
-        return
+        return  # 🚨 No save/push if invalid
 
     qty_sold = lei_sold / buy_price
     pnl_per_share = price - buy_price
@@ -144,7 +172,7 @@ async def sell(ctx, ticker: str, price: float, lei_sold: float):
 
     stocks[ticker]["invested_lei"] -= lei_sold
     if stocks[ticker]["invested_lei"] <= 0:
-        del stocks[ticker]
+        del stocks[ticker] 
 
     save_data(data)
     push_to_github(DATA_FILE, f"Sold {lei_sold} LEI of {ticker} at {price}")
@@ -176,7 +204,6 @@ async def pnl(ctx):
     data = load_data()
     await ctx.send(f"💰 **Cumulative Realized PnL:** {data['realized_pnl']:.2f} LEI")
 
-
 # ---------------------------
 # Run Bot
 # ---------------------------
@@ -185,5 +212,6 @@ if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERROR: DISCORD_BOT_TOKEN is not set")
     else:
-        Thread(target=keep_alive).start()
+        from threading import Thread
+        Thread(target=keep_alive).start()   # only here
         bot.run(TOKEN)
