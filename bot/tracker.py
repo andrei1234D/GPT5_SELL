@@ -10,7 +10,8 @@ def load_data(file_path="bot/data.json"):
     try:
         if file_path.endswith(".json"):
             with open(file_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                json_data = json.load(f)
+                return json_data if "stocks" not in json_data else {"stocks": json_data["stocks"]}
 
         elif file_path.endswith(".csv"):
             data = {}
@@ -37,7 +38,7 @@ def load_data(file_path="bot/data.json"):
                         "support": float(row.get("support", 0)),
                         "active": True
                     }
-            return data
+            return {"stocks": data}
 
         else:
             print(f"⚠️ Unsupported file format: {file_path}")
