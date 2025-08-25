@@ -88,11 +88,23 @@ async def on_ready():
 # ---------------------------
 @bot.command()
 async def buy(ctx, ticker: str, price: float, lei_invested: float):
+    import traceback
+
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
 
-    shares_bought = lei_invested / price
+    # Fetch USD to RON exchange rate
+    try:
+        res = requests.get("https://api.exchangerate.host/latest?base=USD&symbols=RON", timeout=5)
+        res.raise_for_status()
+        usd_to_ron = res.json()["rates"]["RON"]
+    except Exception as e:
+        print(f"⚠️ Failed to fetch exchange rate, using fallback: {e}")
+        traceback.print_exc()
+        usd_to_ron = 4.6  # fallback
+
+    shares_bought = (lei_invested / usd_to_ron) / price
 
     if ticker in stocks:
         old_price = float(stocks[ticker]["avg_price"])
@@ -116,8 +128,10 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
     push_to_github(DATA_FILE, f"Bought {lei_invested} LEI of {ticker} at {price}")
     await ctx.send(
         f"✅ Now tracking **{ticker}** | Avg Buy Price: {stocks[ticker]['avg_price']:.2f} | "
-        f"Shares: {stocks[ticker]['shares']:.2f} | Invested: {stocks[ticker]['invested_lei']:.2f} LEI"
+        f"Shares: {stocks[ticker]['shares']:.2f} | Invested: {stocks[ticker]['invested_lei']:.2f} LEI "
+        f"(Rate: 1 USD = {usd_to_ron:.2f} RON)"
     )
+
 
 
 @bot.command()
