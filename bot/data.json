@@ -2,9 +2,9 @@
   "stocks": {
     "ONDS": {
       "avg_price": 4.79,
-      "shares": 104.38413361169103,
+      "shares": 24.08,
       "invested_lei": 500.0
     }
   },
-  "realized_pnl": -0.7155635062611535
+  "realized_pnl": 0.0
 }
