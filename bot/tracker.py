@@ -11,7 +11,8 @@ def load_data(file_path="bot/data.json"):
         if file_path.endswith(".json"):
             with open(file_path, "r", encoding="utf-8") as f:
                 json_data = json.load(f)
-                return json_data if "stocks" not in json_data else {"stocks": json_data["stocks"]}
+                return json_data if "stocks" in json_data else {"stocks": json_data}
+
 
         elif file_path.endswith(".csv"):
             data = {}
