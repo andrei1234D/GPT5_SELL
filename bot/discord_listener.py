@@ -32,7 +32,7 @@ def get_usd_to_ron():
         return float(rate)
     except Exception as e:
         print(f"⚠️ FX fetch failed, defaulting to 1. Error: {e}")
-        return 1.0
+        return 4.5
 
 
 # ---------------------------
