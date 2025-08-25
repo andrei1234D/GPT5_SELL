@@ -14,7 +14,12 @@
       "avg_price": 100.0,
       "shares": 0.2,
       "invested_lei": 20.0
+    },
+    "ONDAS": {
+      "avg_price": 4.789457327043014,
+      "shares": 166.88413361169103,
+      "invested_lei": 299.28443649373884
     }
   },
-  "realized_pnl": 0
+  "realized_pnl": -0.7155635062611535
 }
