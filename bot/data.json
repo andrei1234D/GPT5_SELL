@@ -4,16 +4,6 @@
       "avg_price": 315.0,
       "shares": 0.0158730159,
       "invested_lei": 5.0
-    },
-    "YOURMOM": {
-      "avg_price": 20.0,
-      "shares": 10.0,
-      "invested_lei": 200.0
-    },
-    "FINALLYWORKING": {
-      "avg_price": 20.0,
-      "shares": 1.0,
-      "invested_lei": 20.0
     }
   },
   "realized_pnl": 0.0
