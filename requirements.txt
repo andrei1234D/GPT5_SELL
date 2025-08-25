@@ -1,4 +1,4 @@
 discord.py==2.6.0
 requests==2.32.3
-yfinance==0.2.54
+yfinance
 flask==3.1.0
