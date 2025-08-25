@@ -1,10 +1,5 @@
 {
   "stocks": {
-    "AAPL": {
-      "avg_price": 20.0,
-      "shares": 10.0,
-      "invested_lei": 200.0
-    },
     "ONDS": {
       "avg_price": 4.79,
       "shares": 104.38413361169103,
