@@ -7,9 +7,7 @@ import subprocess, sys
 import base64
 import requests
 from threading import Thread
-
-
-
+import yfinance as yf
 
 # ✅ Auto-install required packages if missing
 required = ["discord.py", "requests"]
@@ -19,10 +17,8 @@ for pkg in required:
     except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
 
-keep_alive()
-
-
 DATA_FILE = "bot/data.json"
+keep_alive()
 
 
 
