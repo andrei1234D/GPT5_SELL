@@ -1,3 +1,4 @@
+
 import yfinance as yf
 import pandas as pd
 
@@ -8,9 +9,7 @@ def compute_indicators(ticker: str):
     Robust version with fallbacks and error handling.
     """
     try:
-        # Fix ticker name if mapped
-        yf_ticker = TICKER_MAP.get(ticker, ticker)
-        ticker_data = yf.Ticker(yf_ticker)
+        ticker_data = yf.Ticker(ticker)
 
         # Try multiple fallbacks for history
         hist = None
@@ -23,7 +22,7 @@ def compute_indicators(ticker: str):
                 continue
 
         if hist is None or hist.empty:
-            print(f"⚠️ No data for {ticker} (yf: {yf_ticker})")
+            print(f"⚠️ No data for {ticker}")
             return None
 
         # Current price
