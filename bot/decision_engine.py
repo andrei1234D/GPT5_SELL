@@ -11,18 +11,15 @@ import json
 
 TRACKER_FILE = "bot/sell_alerts_tracker.json"
 
-
 def load_tracker():
     if os.path.exists(TRACKER_FILE):
         with open(TRACKER_FILE, "r") as f:
             return json.load(f)
     return {"date": datetime.utcnow().strftime("%Y-%m-%d"), "had_alerts": False}
 
-
 def save_tracker(data):
     with open(TRACKER_FILE, "w") as f:
         json.dump(data, f)
-
 
 def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
                           volume=None, momentum=None, rsi=None, market_trend=None,
@@ -36,12 +33,12 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
 
     if pnl_pct <= -25:
         if rsi and rsi < 35:
-            return False, f"📈 Oversold at {rsi}, deep loss but HOLD (recovery likely).", current_price
+            return False, f"📈 Oversold at {rsi}, deep loss but HOLD.", current_price
         if momentum and momentum >= 0:
             return False, f"📈 Momentum stabilizing despite loss → HOLD.", current_price
         if market_trend == "BULLISH":
             return False, f"📈 Market bullish, avoid panic selling at deep loss.", current_price
-        return True, f"🛑 Smart Stop Loss Triggered (-25%) with weakness confirmed.", current_price
+        return True, f"🛑 Smart Stop Loss Triggered (-25%).", current_price
 
     if rsi and rsi > 75:
         return True, f"📉 RSI Extreme Overbought (>75).", current_price
@@ -96,7 +93,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "Ticker", "Buy Price", "Invested (LEI)", "Current Price",
+            "Ticker", "Avg Price", "Shares", "Invested (LEI)", "Current Price",
             "Current Value (LEI)", "PnL %", "PnL (LEI)",
             "Decision", "Reason", "Expected",
             "Volume", "Momentum", "RSI", "Market Trend", "MA50", "MA200", "ATR",
@@ -104,14 +101,13 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         ])
 
         for ticker, info in stocks.items():
-            buy_price = float(info.get("buy_price", 0))
-            lei_invested = float(info.get("invested_lei", 0))
+            avg_price = float(info.get("avg_price", 0))
+            invested_lei = float(info.get("invested_lei", 0))
+            shares = float(info.get("shares", 0))
 
-            if buy_price <= 0 or lei_invested <= 0:
-                print(f"⚠️ Skipping {ticker}, invalid buy_price or invested_lei")
+            if avg_price <= 0 or invested_lei <= 0 or shares <= 0:
+                print(f"⚠️ Skipping {ticker}, invalid data")
                 continue
-
-            qty = lei_invested / buy_price
 
             indicators = compute_indicators(ticker)
             if not indicators:
@@ -119,26 +115,15 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 continue
 
             current_price = indicators["current_price"]
-            current_value = current_price * qty
-            pnl_lei = current_value - lei_invested
-            pnl_pct = (pnl_lei / lei_invested) * 100 if lei_invested > 0 else 0
+            current_value = current_price * shares
+            pnl_lei = current_value - invested_lei
+            pnl_pct = (pnl_lei / invested_lei) * 100 if invested_lei > 0 else 0
             info.update(indicators)
 
             expected = info.get("expected", "HOLD")
 
-            print("\n🔎 DEBUG DATA DUMP ---------------------------")
-            print(f"Ticker: {ticker}")
-            print(f"  Buy Price: {buy_price}")
-            print(f"  Invested: {lei_invested} LEI")
-            print(f"  Current Price: {current_price}")
-            print(f"  Current Value: {current_value} LEI")
-            print(f"  PnL: {pnl_lei:+.2f} LEI ({pnl_pct:.2f}%)")
-            for key, value in indicators.items():
-                print(f"  {key}: {value}")
-            print("------------------------------------------------")
-
             decision, reason, _ = check_sell_conditions(
-                ticker, buy_price, current_price,
+                ticker, avg_price, current_price,
                 volume=info.get("volume"),
                 momentum=info.get("momentum"),
                 rsi=info.get("rsi"),
@@ -158,7 +143,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             decision_text = "SELL" if decision else "HOLD"
 
             writer.writerow([
-                ticker, f"{buy_price:.2f}", f"{lei_invested:.2f}", f"{current_price:.2f}",
+                ticker, f"{avg_price:.2f}", f"{shares:.2f}", f"{invested_lei:.2f}", f"{current_price:.2f}",
                 f"{current_value:.2f}", f"{pnl_pct:.2f}%", f"{pnl_lei:.2f}",
                 decision_text, reason, expected,
                 info.get("volume"), info.get("momentum"), info.get("rsi"), info.get("market_trend"),
@@ -174,8 +159,9 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             if decision:
                 alert_line = (
                     f"**{ticker}**\n"
-                    f"Buy Price: {buy_price:.2f}\n"
-                    f"Invested: {lei_invested:.2f} LEI\n"
+                    f"Avg Price: {avg_price:.2f}\n"
+                    f"Shares: {shares:.2f}\n"
+                    f"Invested: {invested_lei:.2f} LEI\n"
                     f"Current Value: {current_value:.2f} LEI\n"
                     f"PnL: {pnl_lei:+.2f} LEI ({pnl_pct:.2f}%)\n"
                     f"Reason: {reason}\n"
@@ -197,17 +183,13 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
     if test_mode:
         accuracy = (correct / total) * 100 if total > 0 else 0
-        print("🧪 TEST SUMMARY -----------------------------")
-        print(f"Total Stocks Tested: {total}")
-        print(f"Correct Decisions: {correct}/{total}")
-        print(f"Accuracy: {accuracy:.1f}% {'✅ PASS' if accuracy >= 85 else '❌ FAIL'}")
-        print("🧪 ------------------------------------------")
+        print(f"🧪 TEST SUMMARY: {accuracy:.1f}% {'✅ PASS' if accuracy >= 85 else '❌ FAIL'}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--test", action="store_true", help="Run with test_data.csv (no Discord spam)")
-    parser.add_argument("--endofday", action="store_true", help="Send quirky message if no alerts today")
+    parser.add_argument("--test", action="store_true")
+    parser.add_argument("--endofday", action="store_true")
     args = parser.parse_args()
 
     run_decision_engine(test_mode=args.test, end_of_day=args.endofday)
