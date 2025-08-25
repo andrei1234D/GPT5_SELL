@@ -113,94 +113,85 @@ async def on_ready():
 @bot.command()
 async def buy(ctx, ticker: str, usd_price: float, lei_invested: float):
     """
-    Buy stock in LEI (USD price auto-converted).
-    Example: !buy AAPL 200 1000
+    Buy stock with LEI → converted to USD to compute shares.
+    Example: !buy AAPL 200 1000  (1000 LEI at $200/share)
     """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
 
     usd_to_ron = get_usd_to_ron()
-    lei_price = usd_price / usd_to_ron   # convert to LEI
-
-    shares_bought = lei_invested / lei_price
+    usd_invested = lei_invested / usd_to_ron   # convert LEI → USD
+    shares_bought = usd_invested / usd_price   # shares bought in USD market
 
     if ticker in stocks:
         old_shares = stocks[ticker]["shares"]
         old_price = stocks[ticker]["avg_price"]
 
         new_total_shares = old_shares + shares_bought
-        if new_total_shares != 0:
-            new_avg_price = ((old_price * old_shares) + (lei_price * shares_bought)) / new_total_shares
-        else:
-            new_avg_price = 0
+        new_avg_price = ((old_price * old_shares) + (usd_price * shares_bought)) / new_total_shares
 
         stocks[ticker]["shares"] = new_total_shares
         stocks[ticker]["avg_price"] = new_avg_price
-        stocks[ticker]["invested_lei"] = new_total_shares * new_avg_price
     else:
         stocks[ticker] = {
-            "avg_price": lei_price,
-            "shares": shares_bought,
-            "invested_lei": shares_bought * lei_price
+            "avg_price": usd_price,
+            "shares": shares_bought
         }
 
     save_data(data)
-    push_to_github(DATA_FILE, f"Bought {lei_invested} LEI of {ticker} at {usd_price}$ ({lei_price:.2f} LEI)")
+    push_to_github(DATA_FILE, f"Bought {lei_invested} LEI of {ticker} at {usd_price}$")
     await ctx.send(
         f"✅ Bought **{ticker}**\n"
-        f"Price: {usd_price}$ → {lei_price:.2f} LEI\n"
-        f"Shares: {shares_bought:.4f} | Avg Price: {stocks[ticker]['avg_price']:.2f} LEI | "
-        f"Total Shares: {stocks[ticker]['shares']:.4f}"
+        f"Price: {usd_price}$ | FX: 1$={usd_to_ron:.2f} LEI\n"
+        f"Shares Bought: {shares_bought:.4f} | Total Shares: {stocks[ticker]['shares']:.4f}"
     )
 
 
 @bot.command()
-async def sell(ctx, ticker: str, usd_price: float, lei_sold: float):
+async def sell(ctx, ticker: str, usd_price: float, lei_amount: float):
     """
-    Sell stock (USD price auto-converted).
-    Example: !sell AAPL 220 500
+    Sell stock using LEI → converted to USD for share calculation.
+    Example: !sell AAPL 220 500  (Sell 500 LEI worth at $220)
     """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
 
     usd_to_ron = get_usd_to_ron()
-    lei_price = usd_price / usd_to_ron
-    shares_to_sell = lei_sold / lei_price
+    usd_amount = lei_amount / usd_to_ron
+    shares_to_sell = usd_amount / usd_price
 
     if ticker not in stocks:
+        # Short position
         stocks[ticker] = {
-            "avg_price": lei_price,
-            "shares": -shares_to_sell,
-            "invested_lei": -shares_to_sell * lei_price
+            "avg_price": usd_price,
+            "shares": -shares_to_sell
         }
         save_data(data)
-        push_to_github(DATA_FILE, f"Shorted {lei_sold} LEI of {ticker} at {usd_price}$")
-        await ctx.send(f"📉 Opened short on **{ticker}** | Sold {shares_to_sell:.4f} shares at {lei_price:.2f} LEI")
+        push_to_github(DATA_FILE, f"Shorted {lei_amount} LEI of {ticker} at {usd_price}$")
+        await ctx.send(f"📉 Opened short on **{ticker}** | Shares: -{shares_to_sell:.4f} at {usd_price}$")
         return
 
     old_shares = stocks[ticker]["shares"]
     avg_price = stocks[ticker]["avg_price"]
 
-    pnl = shares_to_sell * (lei_price - avg_price) if old_shares > 0 else shares_to_sell * (avg_price - lei_price)
+    pnl = shares_to_sell * (usd_price - avg_price) if old_shares > 0 else shares_to_sell * (avg_price - usd_price)
     data["realized_pnl"] += pnl
 
     new_shares = old_shares - shares_to_sell
-
     if new_shares == 0:
         del stocks[ticker]
     else:
         stocks[ticker]["shares"] = new_shares
-        stocks[ticker]["invested_lei"] = new_shares * avg_price
 
     save_data(data)
-    push_to_github(DATA_FILE, f"Sold {lei_sold} LEI of {ticker} at {usd_price}$")
+    push_to_github(DATA_FILE, f"Sold {lei_amount} LEI of {ticker} at {usd_price}$")
     await ctx.send(
         f"💸 Sold **{ticker}**\n"
-        f"Price: {usd_price}$ → {lei_price:.2f} LEI | Shares Sold: {shares_to_sell:.4f}\n"
-        f"PnL: {pnl:+.2f} LEI | 📊 Realized PnL: {data['realized_pnl']:.2f} LEI\n"
-        f"Remaining Shares: {new_shares:.4f}"
+        f"Price: {usd_price}$ | FX: 1$={usd_to_ron:.2f} LEI\n"
+        f"Shares Sold: {shares_to_sell:.4f} | Remaining: {new_shares:.4f}\n"
+        f"PnL: {pnl:+.2f}$ | 📊 Total Realized PnL: {data['realized_pnl']:.2f}$"
     )
 
 
