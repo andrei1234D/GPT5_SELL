@@ -8,6 +8,9 @@ import base64
 import requests
 from threading import Thread
 
+
+
+
 # ✅ Auto-install required packages if missing
 required = ["discord.py", "requests"]
 for pkg in required:
@@ -16,8 +19,25 @@ for pkg in required:
     except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
 
-DATA_FILE = "bot/data.json"
 keep_alive()
+
+
+DATA_FILE = "bot/data.json"
+
+
+
+# ---------------------------
+# Currency Conversion
+# ---------------------------
+def get_usd_to_ron():
+    try:
+        fx = yf.Ticker("USDRON=X")
+        rate = fx.history(period="1d")["Close"].iloc[-1]
+        return float(rate)
+    except Exception as e:
+        print(f"⚠️ FX fetch failed, defaulting to 1. Error: {e}")
+        return 1.0
+
 
 # ---------------------------
 # Data Management
@@ -95,86 +115,98 @@ async def on_ready():
 # Bot Commands
 # ---------------------------
 @bot.command()
-async def buy(ctx, ticker: str, price: float, lei_invested: float):
+async def buy(ctx, ticker: str, usd_price: float, lei_invested: float):
     """
-    Buy shares with LEI invested at a given price.
-    Example: !buy AAPL 125 200  (→ 200 LEI invested at 125/share)
+    Buy stock in LEI (USD price auto-converted).
+    Example: !buy AAPL 200 1000
     """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
 
-    shares_bought = lei_invested / price
+    usd_to_ron = get_usd_to_ron()
+    lei_price = usd_price / usd_to_ron   # convert to LEI
+
+    shares_bought = lei_invested / lei_price
 
     if ticker in stocks:
         old_shares = stocks[ticker]["shares"]
         old_price = stocks[ticker]["avg_price"]
 
-        # Weighted average price
         new_total_shares = old_shares + shares_bought
         if new_total_shares != 0:
-            new_avg_price = ((old_price * old_shares) + (price * shares_bought)) / new_total_shares
+            new_avg_price = ((old_price * old_shares) + (lei_price * shares_bought)) / new_total_shares
         else:
-            new_avg_price = price
+            new_avg_price = 0
 
         stocks[ticker]["shares"] = new_total_shares
         stocks[ticker]["avg_price"] = new_avg_price
+        stocks[ticker]["invested_lei"] = new_total_shares * new_avg_price
     else:
         stocks[ticker] = {
-            "avg_price": price,
+            "avg_price": lei_price,
             "shares": shares_bought,
+            "invested_lei": shares_bought * lei_price
         }
 
-    stocks[ticker]["invested_lei"] = stocks[ticker]["shares"] * stocks[ticker]["avg_price"]
-
     save_data(data)
-    push_to_github(DATA_FILE, f"Bought {lei_invested} LEI of {ticker} at {price}")
+    push_to_github(DATA_FILE, f"Bought {lei_invested} LEI of {ticker} at {usd_price}$ ({lei_price:.2f} LEI)")
     await ctx.send(
-        f"✅ Bought **{shares_bought:.2f} shares of {ticker}** "
-        f"at {price:.2f} | Total Shares: {stocks[ticker]['shares']:.2f} | "
-        f"Avg Price: {stocks[ticker]['avg_price']:.2f}"
+        f"✅ Bought **{ticker}**\n"
+        f"Price: {usd_price}$ → {lei_price:.2f} LEI\n"
+        f"Shares: {shares_bought:.4f} | Avg Price: {stocks[ticker]['avg_price']:.2f} LEI | "
+        f"Total Shares: {stocks[ticker]['shares']:.4f}"
     )
 
 
 @bot.command()
-async def sell(ctx, ticker: str, price: float, lei_sold: float):
+async def sell(ctx, ticker: str, usd_price: float, lei_sold: float):
     """
-    Sell shares for LEI at a given price.
-    Example: !sell AAPL 140 100  (→ Sell 100 LEI worth at 140/share)
-    Supports short selling (shares can go negative).
+    Sell stock (USD price auto-converted).
+    Example: !sell AAPL 220 500
     """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
 
-    if ticker not in stocks:
-        stocks[ticker] = {"avg_price": price, "shares": 0.0, "invested_lei": 0.0}
+    usd_to_ron = get_usd_to_ron()
+    lei_price = usd_price / usd_to_ron
+    shares_to_sell = lei_sold / lei_price
 
-    shares_to_sell = lei_sold / price
-    current_shares = stocks[ticker]["shares"]
+    if ticker not in stocks:
+        stocks[ticker] = {
+            "avg_price": lei_price,
+            "shares": -shares_to_sell,
+            "invested_lei": -shares_to_sell * lei_price
+        }
+        save_data(data)
+        push_to_github(DATA_FILE, f"Shorted {lei_sold} LEI of {ticker} at {usd_price}$")
+        await ctx.send(f"📉 Opened short on **{ticker}** | Sold {shares_to_sell:.4f} shares at {lei_price:.2f} LEI")
+        return
+
+    old_shares = stocks[ticker]["shares"]
     avg_price = stocks[ticker]["avg_price"]
 
-    # Calculate PnL only if selling from a long position
-    realized_pnl = 0.0
-    if current_shares > 0:  
-        qty_sold = min(current_shares, shares_to_sell)
-        realized_pnl = (price - avg_price) * qty_sold
-        data["realized_pnl"] += realized_pnl
+    pnl = shares_to_sell * (lei_price - avg_price) if old_shares > 0 else shares_to_sell * (avg_price - lei_price)
+    data["realized_pnl"] += pnl
 
-    # Update shares (can go negative = short selling)
-    stocks[ticker]["shares"] = current_shares - shares_to_sell
-    stocks[ticker]["invested_lei"] = stocks[ticker]["shares"] * avg_price
+    new_shares = old_shares - shares_to_sell
+
+    if new_shares == 0:
+        del stocks[ticker]
+    else:
+        stocks[ticker]["shares"] = new_shares
+        stocks[ticker]["invested_lei"] = new_shares * avg_price
 
     save_data(data)
-    push_to_github(DATA_FILE, f"Sold {lei_sold} LEI of {ticker} at {price}")
-
+    push_to_github(DATA_FILE, f"Sold {lei_sold} LEI of {ticker} at {usd_price}$")
     await ctx.send(
-        f"💸 Sold **{shares_to_sell:.2f} shares of {ticker}** at {price:.2f}\n"
-        f"PnL (this trade): {realized_pnl:+.2f} LEI\n"
-        f"📊 Total Shares: {stocks[ticker]['shares']:.2f} | "
-        f"Avg Price: {stocks[ticker]['avg_price']:.2f}\n"
-        f"💰 **Cumulative Realized PnL:** {data['realized_pnl']:.2f} LEI"
+        f"💸 Sold **{ticker}**\n"
+        f"Price: {usd_price}$ → {lei_price:.2f} LEI | Shares Sold: {shares_to_sell:.4f}\n"
+        f"PnL: {pnl:+.2f} LEI | 📊 Realized PnL: {data['realized_pnl']:.2f} LEI\n"
+        f"Remaining Shares: {new_shares:.4f}"
     )
+
 
 @bot.command()
 async def list(ctx):
