@@ -4,6 +4,11 @@
       "avg_price": 4.79,
       "shares": 24.08,
       "invested_lei": 500.0
+    },
+    "KOD": {
+      "avg_price": 11.0,
+      "shares": 3.9525691699604746,
+      "invested_lei": 200.0
     }
   },
   "realized_pnl": 0.0
