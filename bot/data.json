@@ -20,11 +20,6 @@
       "shares": 0.9321208857219795,
       "invested_lei": 1800.0
     },
-    "AAPL": {
-      "avg_price": 217.79,
-      "shares": 1.3974371003579438,
-      "invested_lei": 1400.0
-    },
     "AMZN": {
       "avg_price": 217.84,
       "shares": 2.5946446534353096,
@@ -46,5 +41,5 @@
       "invested_lei": 9600.0
     }
   },
-  "realized_pnl": -50.833700922303336
+  "realized_pnl": 10.879176620283687
 }
