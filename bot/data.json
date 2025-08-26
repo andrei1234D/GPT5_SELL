@@ -19,6 +19,11 @@
       "avg_price": 350.21,
       "shares": 2.7933550428748966,
       "invested_lei": 4500.0
+    },
+    "MSFT": {
+      "avg_price": 419.8,
+      "shares": 0.9321208857219795,
+      "invested_lei": 1800.0
     }
   },
   "realized_pnl": 0.0
