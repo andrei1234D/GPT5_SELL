@@ -24,6 +24,11 @@
       "avg_price": 419.8,
       "shares": 0.9321208857219795,
       "invested_lei": 1800.0
+    },
+    "AAPL": {
+      "avg_price": 217.79,
+      "shares": 1.3974371003579438,
+      "invested_lei": 1400.0
     }
   },
   "realized_pnl": 0.0
