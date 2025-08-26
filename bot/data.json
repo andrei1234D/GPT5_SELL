@@ -39,6 +39,11 @@
       "avg_price": 60.92,
       "shares": 3.7468954295012704,
       "invested_lei": 1050.0
+    },
+    "O": {
+      "avg_price": 58.44,
+      "shares": 3.3479153646995807,
+      "invested_lei": 900.0
     }
   },
   "realized_pnl": 0.0
