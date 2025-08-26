@@ -9,6 +9,11 @@
       "avg_price": 11.0,
       "shares": 3.9525691699604746,
       "invested_lei": 200.0
+    },
+    "CELH": {
+      "avg_price": 61.28,
+      "shares": 0.3547508230219094,
+      "invested_lei": 100.0
     }
   },
   "realized_pnl": 0.0
