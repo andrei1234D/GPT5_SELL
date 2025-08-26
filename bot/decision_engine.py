@@ -11,16 +11,36 @@ import json
 
 TRACKER_FILE = "bot/sell_alerts_tracker.json"
 
+
+# ---------------------------
+# Helpers
+# ---------------------------
+def get_usd_to_lei():
+    """Fetch live USD/RON conversion rate, fallback to 4.6 if fail."""
+    try:
+        fx = yf.Ticker("USDRON=X").history(period="1d")
+        if not fx.empty:
+            return float(fx["Close"].iloc[-1])
+    except Exception as e:
+        print(f"⚠️ FX fetch failed: {e}")
+    return 4.6  # fallback
+
+
 def load_tracker():
     if os.path.exists(TRACKER_FILE):
         with open(TRACKER_FILE, "r") as f:
             return json.load(f)
     return {"date": datetime.utcnow().strftime("%Y-%m-%d"), "had_alerts": False}
 
+
 def save_tracker(data):
     with open(TRACKER_FILE, "w") as f:
         json.dump(data, f)
 
+
+# ---------------------------
+# Core Logic
+# ---------------------------
 def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
                           volume=None, momentum=None, rsi=None, market_trend=None,
                           ma50=None, ma200=None, atr=None,
@@ -90,10 +110,12 @@ def run_decision_engine(test_mode=False, end_of_day=False):
     csv_file = "bot/test_results.csv" if test_mode else "bot/live_results.csv"
     os.makedirs(os.path.dirname(csv_file), exist_ok=True)
 
+    usd_to_lei = get_usd_to_lei()
+
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "Ticker", "Avg Price", "Shares", "Invested (LEI)", "Current Price",
+            "Ticker", "Avg Price (USD)", "Shares", "Invested (LEI)", "Current Price (USD)",
             "Current Value (LEI)", "PnL %", "PnL (LEI)",
             "Decision", "Reason", "Expected",
             "Volume", "Momentum", "RSI", "Market Trend", "MA50", "MA200", "ATR",
@@ -101,8 +123,8 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         ])
 
         for ticker, info in stocks.items():
-            avg_price = float(info.get("avg_price", 0))
-            invested_lei = float(info.get("invested_lei", 0))
+            avg_price = float(info.get("avg_price", 0))   # USD
+            invested_lei = float(info.get("invested_lei", 0))  # LEI
             shares = float(info.get("shares", 0))
 
             if avg_price <= 0 or invested_lei <= 0 or shares <= 0:
@@ -114,9 +136,11 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 print(f"⚠️ Skipping {ticker}, no indicators fetched")
                 continue
 
-            current_price = indicators["current_price"]
-            current_value = current_price * shares
-            pnl_lei = current_value - invested_lei
+            current_price = indicators["current_price"]  # USD
+            current_value_usd = current_price * shares
+            current_value_lei = current_value_usd * usd_to_lei
+
+            pnl_lei = current_value_lei - invested_lei
             pnl_pct = (pnl_lei / invested_lei) * 100 if invested_lei > 0 else 0
             info.update(indicators)
 
@@ -144,7 +168,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
             writer.writerow([
                 ticker, f"{avg_price:.2f}", f"{shares:.2f}", f"{invested_lei:.2f}", f"{current_price:.2f}",
-                f"{current_value:.2f}", f"{pnl_pct:.2f}%", f"{pnl_lei:.2f}",
+                f"{current_value_lei:.2f}", f"{pnl_pct:.2f}%", f"{pnl_lei:.2f}",
                 decision_text, reason, expected,
                 info.get("volume"), info.get("momentum"), info.get("rsi"), info.get("market_trend"),
                 info.get("ma50"), info.get("ma200"), info.get("atr"),
@@ -159,10 +183,10 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             if decision:
                 alert_line = (
                     f"**{ticker}**\n"
-                    f"Avg Price: {avg_price:.2f}\n"
+                    f"Avg Price: {avg_price:.2f} USD\n"
                     f"Shares: {shares:.2f}\n"
                     f"Invested: {invested_lei:.2f} LEI\n"
-                    f"Current Value: {current_value:.2f} LEI\n"
+                    f"Current Value: {current_value_lei:.2f} LEI\n"
                     f"PnL: {pnl_lei:+.2f} LEI ({pnl_pct:.2f}%)\n"
                     f"Reason: {reason}\n"
                 )
