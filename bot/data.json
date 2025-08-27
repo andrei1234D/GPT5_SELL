@@ -4,12 +4,7 @@
       "avg_price": 4.79,
       "shares": 24.08,
       "invested_lei": 500.0
-    },
-    "SATS": {
-      "avg_price": 55.86,
-      "shares": 1.1675150609442861,
-      "invested_lei": 300.0
     }
   },
-  "realized_pnl": 0.0
+  "realized_pnl": -12.136720372359466
 }
