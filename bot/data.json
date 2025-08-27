@@ -4,37 +4,7 @@
       "avg_price": 4.79,
       "shares": 24.08,
       "invested_lei": 500.0
-    },
-    "KOD": {
-      "avg_price": 11.0,
-      "shares": 3.9525691699604746,
-      "invested_lei": 200.0
-    },
-    "MSFT": {
-      "avg_price": 419.8,
-      "shares": 0.9321208857219795,
-      "invested_lei": 1800.0
-    },
-    "AMZN": {
-      "avg_price": 217.84,
-      "shares": 2.5946446534353096,
-      "invested_lei": 2600.0
-    },
-    "CSCO": {
-      "avg_price": 60.92,
-      "shares": 3.7468954295012704,
-      "invested_lei": 1050.0
-    },
-    "O": {
-      "avg_price": 58.44,
-      "shares": 3.3479153646995807,
-      "invested_lei": 900.0
-    },
-    "NVDA": {
-      "avg_price": 132.27,
-      "shares": 15.778003490883272,
-      "invested_lei": 9600.0
     }
   },
-  "realized_pnl": 7.471748421850261
+  "realized_pnl": -12.136720372359466
 }
