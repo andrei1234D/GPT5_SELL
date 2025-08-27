@@ -51,6 +51,7 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
 
     pnl_pct = ((current_price - buy_price) / buy_price) * 100 if buy_price > 0 else 0
 
+    # Hard Stop-Loss
     if pnl_pct <= -25:
         if rsi and rsi < 35:
             return False, f"📈 Oversold at {rsi}, deep loss but HOLD.", current_price
@@ -60,30 +61,35 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
             return False, f"📈 Market bullish, avoid panic selling at deep loss.", current_price
         return True, f"🛑 Smart Stop Loss Triggered (-25%).", current_price
 
-    if rsi and rsi > 75:
-        return True, f"📉 RSI Extreme Overbought (>75).", current_price
-    if rsi and rsi < 30:
-        return False, f"📈 RSI Oversold (<30) → HOLD.", current_price
-    if momentum and momentum < -0.5:
-        return True, f"📉 Strong Negative Momentum (< -0.5).", current_price
-    if market_trend == "BEARISH" and pnl_pct < -5:
-        return True, f"📉 Bearish Market + Loss → SELL.", current_price
-    if ma200 and current_price < ma200 and momentum and momentum < -0.3:
-        return True, f"📉 Below MA200 + Weak Momentum.", current_price
-    if ma50 and ma200 and ma50 < ma200 and pnl_pct < -5:
-        return True, f"📉 Death Cross + Small Loss.", current_price
-    if atr and atr > 7 and pnl_pct < -15:
-        return True, f"⚡ High Volatility (ATR>7) with Loss.", current_price
-    if macd and macd_signal and macd < macd_signal and rsi and rsi > 65:
-        return True, f"📉 MACD Bearish Crossover + RSI Overbought.", current_price
-    if bb_upper and current_price > bb_upper and rsi and rsi > 70:
-        return True, f"📉 Price Above Bollinger Upper Band + RSI Overbought.", current_price
-    if bb_lower and current_price < bb_lower and rsi and rsi < 35:
-        return False, f"📈 Price Near Bollinger Lower Band + RSI Oversold → HOLD.", current_price
-    if resistance and current_price >= resistance * 0.99 and rsi and rsi > 65:
-        return True, f"📉 Near Resistance + RSI Overbought.", current_price
-    if support and current_price <= support * 1.01 and pnl_pct < -5:
-        return True, f"📉 Broke Support ({support}).", current_price
+    # Score-based logic
+    score = 0
+    reasons = []
+
+    if momentum is not None and momentum < -0.5:
+        score += 2
+        reasons.append("📉 Strong Negative Momentum (< -0.5)")
+    if macd is not None and macd_signal is not None and macd < macd_signal:
+        score += 1
+        reasons.append("📉 MACD Bearish Crossover")
+    if rsi is not None and rsi > 70:
+        score += 1
+        reasons.append("📉 RSI Overbought (>70)")
+    if ma50 is not None and current_price < ma50:
+        score += 1
+        reasons.append("📉 Price below MA50")
+    if ma200 is not None and current_price < ma200:
+        score += 1
+        reasons.append("📉 Price below MA200")
+    if atr is not None and atr > 7 and pnl_pct < -10:
+        score += 1
+        reasons.append("⚡ High ATR + Loss")
+    if bb_upper is not None and current_price > bb_upper:
+        score += 1
+        reasons.append("📉 Price above Upper Bollinger Band")
+
+    if score >= 3:
+        reason_text = " | ".join(reasons)
+        return True, f"🚨 Score {score} triggered SELL: {reason_text}", current_price
 
     return False, "Hold — no sell signal", current_price
 
