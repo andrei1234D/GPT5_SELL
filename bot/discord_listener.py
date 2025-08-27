@@ -88,23 +88,19 @@ async def on_ready():
 # ---------------------------
 @bot.command()
 async def buy(ctx, ticker: str, price: float, lei_invested: float):
-    import traceback
-
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
 
-    # Fetch USD to RON exchange rate
+    # ✅ Fetch FX rate at purchase
     try:
-        res = requests.get("https://api.exchangerate.host/latest?base=USD&symbols=RON", timeout=5)
-        res.raise_for_status()
-        usd_to_ron = res.json()["rates"]["RON"]
-    except Exception as e:
-        print(f"⚠️ Failed to fetch exchange rate, using fallback: {e}")
-        traceback.print_exc()
-        usd_to_ron = 4.6  # fallback
+        fx = yf.Ticker("USDRON=X").history(period="1d")
+        fx_rate = float(fx["Close"].iloc[-1]) if not fx.empty else 4.6
+    except:
+        fx_rate = 4.6
 
-    shares_bought = (lei_invested / usd_to_ron) / price
+    usd_invested = lei_invested / fx_rate
+    shares_bought = usd_invested / price
 
     if ticker in stocks:
         old_price = float(stocks[ticker]["avg_price"])
@@ -117,20 +113,23 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         stocks[ticker]["avg_price"] = float(avg_price)
         stocks[ticker]["shares"] = float(new_shares)
         stocks[ticker]["invested_lei"] = float(old_invested + lei_invested)
+        stocks[ticker]["fx_rate_buy"] = fx_rate
     else:
         stocks[ticker] = {
-            "avg_price": float(price),
+            "avg_price": float(price),       # in USD
             "shares": float(shares_bought),
-            "invested_lei": float(lei_invested)
+            "invested_lei": float(lei_invested),
+            "fx_rate_buy": fx_rate           # store FX at buy
         }
 
     save_data(data)
-    push_to_github(DATA_FILE, f"Bought {lei_invested} LEI of {ticker} at {price}")
+    push_to_github(DATA_FILE, f"Bought {lei_invested} LEI of {ticker} at {price} (FX {fx_rate})")
     await ctx.send(
-        f"✅ Now tracking **{ticker}** | Avg Buy Price: {stocks[ticker]['avg_price']:.2f} | "
+        f"✅ Now tracking **{ticker}** | Avg Buy Price: {stocks[ticker]['avg_price']:.2f} USD | "
         f"Shares: {stocks[ticker]['shares']:.2f} | Invested: {stocks[ticker]['invested_lei']:.2f} LEI "
-        f"(Rate: 1 USD = {usd_to_ron:.2f} RON)"
+        f"(FX at buy: {fx_rate:.2f})"
     )
+
 
 
 
