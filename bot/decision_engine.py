@@ -90,7 +90,7 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
      # Profit-taking safeguard
     if pnl_pct >= 22 and score >= 3:
         reason_text = " | ".join(reasons)
-        return True, f"🎯 Profit target reached (+22%) with weakening signals (score {score}): {reason_text}", current_price
+        return True, f"🎯 Profit target reached (+23%) with weakening signals (score {score}): {reason_text}", current_price
 
     # Normal score-based exit (≥4 signals)
     if score > 3:
