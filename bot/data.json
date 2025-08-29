@@ -30,12 +30,6 @@
       "shares": 3.3479153646995807,
       "invested_lei": 900.0
     },
-    "NVDA": {
-      "avg_price": 139.29736282591668,
-      "shares": 18.883593552995073,
-      "invested_lei": 12100.0,
-      "fx_rate_buy": 4.6
-    },
     "VSAT": {
       "avg_price": 33.5,
       "shares": 3.2446463335496434,
@@ -43,5 +37,5 @@
       "fx_rate_buy": 4.6
     }
   },
-  "realized_pnl": 7.471748421850261
+  "realized_pnl": 1556.3339754593328
 }
