@@ -10,11 +10,6 @@
       "shares": 3.9525691699604746,
       "invested_lei": 200.0
     },
-    "MSFT": {
-      "avg_price": 419.8,
-      "shares": 0.9321208857219795,
-      "invested_lei": 1800.0
-    },
     "AMZN": {
       "avg_price": 217.84,
       "shares": 2.5946446534353096,
@@ -37,5 +32,5 @@
       "fx_rate_buy": 4.6
     }
   },
-  "realized_pnl": 2819.698105953601
+  "realized_pnl": 3186.5585156725147
 }
