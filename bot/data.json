@@ -36,6 +36,12 @@
       "shares": 1.0269323272135014,
       "invested_lei": 1000.0,
       "fx_rate_buy": 4.6
+    },
+    "GOOG": {
+      "avg_price": 213.4,
+      "shares": 1.01870339431971,
+      "invested_lei": 1000.0,
+      "fx_rate_buy": 4.6
     }
   },
   "realized_pnl": 3186.5585156725147
