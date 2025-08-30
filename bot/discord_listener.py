@@ -6,7 +6,9 @@ from keep_alive import keep_alive
 import subprocess, sys
 import base64
 import requests
+import yfinance as yf
 from threading import Thread
+
 
 # ✅ Auto-install required packages if missing
 required = ["discord.py", "requests"]
@@ -143,32 +145,48 @@ async def sell(ctx, ticker: str, price: float, lei_sold: float):
         await ctx.send(f"⚠️ {ticker} is not being tracked.")
         return
 
-    avg_price = float(stocks[ticker]["avg_price"])
-    invested = float(stocks[ticker]["invested_lei"])
+    avg_price = float(stocks[ticker]["avg_price"])      # in USD
+    invested = float(stocks[ticker]["invested_lei"])    # in LEI
     shares = float(stocks[ticker]["shares"])
+    fx_buy = float(stocks[ticker].get("fx_rate_buy", 4.6))  # fallback
 
     if lei_sold > invested:
         await ctx.send(f"⚠️ Cannot sell {lei_sold}, only {invested:.2f} LEI invested.")
         return
 
-    shares_sold = lei_sold / avg_price
-    pnl_per_share = price - avg_price
-    total_pnl = pnl_per_share * shares_sold
-    data["realized_pnl"] += total_pnl
+    # ✅ Fetch FX rate at sell
+    try:
+        fx = yf.Ticker("USDRON=X").history(period="1d")
+        fx_sell = float(fx["Close"].iloc[-1]) if not fx.empty else 4.6
+    except:
+        fx_sell = 4.6
 
+    # Convert LEI sold → USD (at SELL FX)
+    usd_sold = lei_sold / fx_sell
+    shares_sold = usd_sold / price
+
+    # Calculate PnL in LEI (adjusting FX at buy vs sell)
+    pnl_per_share_usd = price - avg_price
+    total_pnl_usd = pnl_per_share_usd * shares_sold
+    total_pnl_lei = total_pnl_usd * fx_sell  # final realized in LEI
+
+    data["realized_pnl"] += total_pnl_lei
+
+    # Update stock holdings
     stocks[ticker]["shares"] -= shares_sold
-    stocks[ticker]["invested_lei"] -= lei_sold
+    stocks[ticker]["invested_lei"] *= stocks[ticker]["shares"] / (stocks[ticker]["shares"] + shares_sold)
+
 
     if stocks[ticker]["shares"] <= 0:
         del stocks[ticker]
 
     save_data(data)
-    push_to_github(DATA_FILE, f"Sold {lei_sold} LEI of {ticker} at {price}")
+    push_to_github(DATA_FILE, f"Sold {lei_sold} LEI of {ticker} at {price} (FX {fx_sell})")
 
     await ctx.send(
         f"💸 Sold **{ticker}**\n"
-        f"Sell Price: {price:.2f} | Amount Sold: {lei_sold:.2f} LEI\n"
-        f"PnL: {total_pnl:+.2f} LEI\n"
+        f"Sell Price: {price:.2f} USD | Amount Sold: {lei_sold:.2f} LEI (FX {fx_sell:.2f})\n"
+        f"PnL: {total_pnl_lei:+.2f} LEI\n"
         f"📊 Cumulative Realized PnL: {data['realized_pnl']:.2f} LEI"
     )
 

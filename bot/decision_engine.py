@@ -42,6 +42,7 @@ def save_tracker(data):
 # Core Logic
 # ---------------------------
 def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
+                          pnl_pct=None,
                           volume=None, momentum=None, rsi=None, market_trend=None,
                           ma50=None, ma200=None, atr=None,
                           macd=None, macd_signal=None,
@@ -49,7 +50,6 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
                           resistance=None, support=None,
                           debug=True):
 
-    pnl_pct = ((current_price - buy_price) / buy_price) * 100 if buy_price > 0 else 0
 
     # Hard Stop-Loss
     if pnl_pct <= -25:
@@ -150,7 +150,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
             current_price = indicators["current_price"]  # USD
             current_value_usd = current_price * shares
-            current_value_lei = current_value_usd * usd_to_lei
+            current_value_lei = current_value_usd * usd_to_lei  # FX-adjusted
 
             pnl_lei = current_value_lei - invested_lei
             pnl_pct = (pnl_lei / invested_lei) * 100 if invested_lei > 0 else 0
@@ -160,6 +160,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
             decision, reason, _ = check_sell_conditions(
                 ticker, avg_price, current_price,
+                pnl_pct=pnl_pct,  # ✅ Pass FX-adjusted PnL
                 volume=info.get("volume"),
                 momentum=info.get("momentum"),
                 rsi=info.get("rsi"),
@@ -175,6 +176,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 support=info.get("support"),
                 debug=test_mode
             )
+
 
             decision_text = "SELL" if decision else "HOLD"
 
