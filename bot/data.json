@@ -47,6 +47,12 @@
       "shares": 1.01870339431971,
       "invested_lei": 1000.0,
       "fx_rate_buy": 4.34
+    },
+    "GFI": {
+      "avg_price": 33.51,
+      "shares": 0.6876158008669007,
+      "invested_lei": 100.0,
+      "fx_rate_buy": 4.339900016784668
     }
   },
   "realized_pnl": 2549.52
