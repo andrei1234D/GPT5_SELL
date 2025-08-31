@@ -14,7 +14,7 @@ def compute_indicators(ticker: str):
 
         # Try multiple fallbacks for history
         hist = None
-        for period in ["6mo", "1mo", "5d"]:
+        for period in ["2y", "6mo", "1mo", "5d"]:
             try:
                 print(f"🔄 Trying {period} history for {ticker}")
                 hist = ticker_data.history(period=period, interval="1d")
