@@ -130,6 +130,13 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
         if (ma50 is not None and current_price < ma50) or (support is not None and current_price < support):
             score += 1.5
             reasons.append("📉 Breakdown confirmed by High Volume")
+    if market_trend is not None:
+        if market_trend == "BULLISH":
+            score -= 0.5
+            reasons.append("🌍 Bullish Market Trend (soft hold bias)")
+        elif market_trend == "BEARISH":
+            score += 0.5
+            reasons.append("🌍 Bearish Market Trend (soft sell bias)")
 
     # --- Exit Conditions ---
     # Profit-taking safeguard

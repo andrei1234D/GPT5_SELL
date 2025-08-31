@@ -95,7 +95,7 @@ def compute_indicators(ticker: str):
         # Market Trend
         market_trend = None
         if ma50 and ma200:
-            if ma50 > ma200:
+            if ma50 > ma200: 
                 market_trend = "BULLISH"
             elif ma50 < ma200:
                 market_trend = "BEARISH"
