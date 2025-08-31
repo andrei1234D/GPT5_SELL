@@ -31,9 +31,11 @@ def compute_indicators(ticker: str):
         current_price = float(hist["Close"].iloc[-1])
         print(f"💰 Current Price: {current_price}")
 
+        # Moving Averages
         ma50 = hist["Close"].rolling(window=50).mean().iloc[-1] if len(hist) >= 50 else None
         ma200 = hist["Close"].rolling(window=200).mean().iloc[-1] if len(hist) >= 200 else None
 
+        # RSI
         rsi = None
         if len(hist) >= 14:
             delta = hist["Close"].diff()
@@ -44,6 +46,7 @@ def compute_indicators(ticker: str):
                 rsi = 100 - (100 / (1 + rs))
         print(f"📈 RSI: {rsi}")
 
+        # MACD
         macd = macd_signal = None
         if len(hist) >= 26:
             ema12 = hist["Close"].ewm(span=12, adjust=False).mean()
@@ -53,6 +56,7 @@ def compute_indicators(ticker: str):
             macd_signal = macd_line.ewm(span=9, adjust=False).mean().iloc[-1]
         print(f"📊 MACD: {macd}, Signal: {macd_signal}")
 
+        # ATR
         atr = None
         if len(hist) >= 14:
             high_low = hist["High"] - hist["Low"]
@@ -62,6 +66,7 @@ def compute_indicators(ticker: str):
             atr = true_range.rolling(14).mean().iloc[-1]
         print(f"⚡ ATR: {atr}")
 
+        # Bollinger Bands
         bb_upper = bb_lower = None
         if len(hist) >= 20:
             sma20 = hist["Close"].rolling(window=20).mean()
@@ -70,16 +75,33 @@ def compute_indicators(ticker: str):
             bb_lower = (sma20 - 2 * stddev).iloc[-1]
         print(f"📉 Bollinger Bands → Upper: {bb_upper}, Lower: {bb_lower}")
 
+        # Momentum
         momentum = hist["Close"].diff().iloc[-1] if len(hist) >= 2 else None
         print(f"🚀 Momentum: {momentum}")
 
-        volume = hist["Volume"].iloc[-1] if "Volume" in hist.columns else None
-        print(f"🔊 Volume: {volume}")
+        # Volume → relative vs 20-day avg
+        volume = None
+        if "Volume" in hist.columns and len(hist) >= 20:
+            today_vol = hist["Volume"].iloc[-1]
+            avg_vol20 = hist["Volume"].tail(20).mean()
+            volume = today_vol / avg_vol20 if avg_vol20 > 0 else None
+        print(f"🔊 Relative Volume: {volume}")
 
+        # Support & Resistance (20-day min/max)
+        support = hist["Close"].tail(20).min() if len(hist) >= 20 else None
+        resistance = hist["Close"].tail(20).max() if len(hist) >= 20 else None
+        print(f"🛑 Support: {support}, 📈 Resistance: {resistance}")
+
+        # Market Trend
         market_trend = None
         if ma50 and ma200:
-            market_trend = "BULLISH" if ma50 > ma200 else "BEARISH"
-        print(f"📈 Market Trend: {market_trend}")
+            if ma50 > ma200:
+                market_trend = "BULLISH"
+            elif ma50 < ma200:
+                market_trend = "BEARISH"
+            else:
+                market_trend = "NEUTRAL"
+        print(f"🌍 Market Trend: {market_trend}")
 
         result = {
             "ticker": ticker,
@@ -93,7 +115,9 @@ def compute_indicators(ticker: str):
             "bb_upper": float(bb_upper) if bb_upper is not None else None,
             "bb_lower": float(bb_lower) if bb_lower is not None else None,
             "momentum": float(momentum) if momentum is not None else None,
-            "volume": int(volume) if volume is not None else None,
+            "volume": float(volume) if volume is not None else None,
+            "support": float(support) if support is not None else None,
+            "resistance": float(resistance) if resistance is not None else None,
             "market_trend": market_trend
         }
 

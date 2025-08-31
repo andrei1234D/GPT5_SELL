@@ -65,39 +65,85 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
     score = 0
     reasons = []
 
+        # Strong momentum breakdown
     if momentum is not None and momentum < -0.5:
         score += 2
         reasons.append("📉 Strong Negative Momentum (< -0.5)")
+
+    # MACD crossover = stronger mid-term reversal → upgrade to 1.5
     if macd is not None and macd_signal is not None and macd < macd_signal:
-        score += 1
-        reasons.append("📉 MACD Bearish Crossover")
+        score += 1.5
+        reasons.append("📉 MACD Bearish Crossover (mid-term trend)")
+
+    # Overbought RSI (still matters but less mid-term)
     if rsi is not None and rsi > 70:
-        score += 1
+        score += 0.5
         reasons.append("📉 RSI Overbought (>70)")
+
+    # MA50 break = short/mid trend weakening
     if ma50 is not None and current_price < ma50:
         score += 1
         reasons.append("📉 Price below MA50")
-    if ma200 is not None and current_price < ma200:
-        score += 1
-        reasons.append("📉 Price below MA200")
-    if atr is not None and atr > 7 and pnl_pct < -10:
-        score += 1
-        reasons.append("⚡ High ATR + Loss")
-    if bb_upper is not None and current_price > bb_upper:
-        score += 1
-        reasons.append("📉 Price above Upper Bollinger Band")
 
-     # Profit-taking safeguard
+    # MA200 break = major structural shift → stronger weight
+    if ma200 is not None and current_price < ma200:
+        score += 2
+        reasons.append("📉 Price below MA200 (long-term support lost)")
+
+    # ATR volatility + loss = risk
+    if atr is not None and atr > 7 and pnl_pct < -10:
+        score += 0.5
+        reasons.append("⚡ High ATR + Loss")
+
+    # Bollinger Band upper touch = weak warning only
+    if bb_upper is not None and current_price > bb_upper:
+        score += 0.5
+        reasons.append("📉 Price above Upper Bollinger Band (stretch)")
+
+    # --- Support/Resistance & Volume checks ---
+    # Support breakdown (only bearish if RSI/momentum confirm)
+    if support is not None and current_price < support:
+        if (rsi is not None and rsi < 45) or (momentum is not None and momentum < 0):
+            score += 2
+            reasons.append("📉 Broke Support with Weak RSI/Momentum")
+        else:
+            reasons.append("⚠️ Touched Support but no confirmation (watch)")
+
+    # Resistance rejection (reduce to 1 mid-term, often noise)
+    if resistance is not None and current_price < resistance:
+        if rsi is not None and rsi > 65:
+            score += 1
+            reasons.append("📉 Rejected at Resistance + Overbought RSI")
+        else:
+            reasons.append("⚠️ Near Resistance but RSI not overbought")
+
+    # Bollinger Band lower = only bearish if RSI also weak
+    if bb_lower is not None and current_price < bb_lower:
+        if rsi is not None and rsi < 40:
+            score += 1
+            reasons.append("📉 Price broke below Lower Bollinger Band + Weak RSI")
+        else:
+            reasons.append("⚠️ Price dipped below Lower Bollinger Band (oversold HOLD bias)")
+
+    # Volume confirmation (only bearish if breakdown is on high volume)
+    if volume is not None and volume > 1.5:  # relative-to-average (e.g., 1.5x higher)
+        if (ma50 is not None and current_price < ma50) or (support is not None and current_price < support):
+            score += 1.5
+            reasons.append("📉 Breakdown confirmed by High Volume")
+
+    # --- Exit Conditions ---
+    # Profit-taking safeguard
     if pnl_pct >= 23 and score >= 3:
         reason_text = " | ".join(reasons)
         return True, f"🎯 Profit target reached (+23%) with weakening signals (score {score}): {reason_text}", current_price
 
-    # Normal score-based exit (≥4 signals)
-    if score > 3:
+    # Normal score-based exit (≥4 mid-term adjusted signals)
+    if score >= 4:
         reason_text = " | ".join(reasons)
         return True, f"🚨 Score {score} (≥4) triggered SELL: {reason_text}", current_price
 
     return False, "Hold — no sell signal", current_price
+
 
 
 def run_decision_engine(test_mode=False, end_of_day=False):
