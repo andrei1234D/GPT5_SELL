@@ -14,8 +14,8 @@
     },
     "AMZN": {
       "avg_price": 217.84,
-      "shares": 2.5946446534353096,
-      "invested_lei": 2600.0,
+      "shares": 0.0030255489538384417,
+      "invested_lei": 3.0317936868791637,
       "fx_rate_buy": 4.34
     },
     "CSCO": {
@@ -61,5 +61,5 @@
       "fx_rate_buy": 4.359099864959717
     }
   },
-  "realized_pnl": 2549.52
+  "realized_pnl": 2616.987055091372
 }
