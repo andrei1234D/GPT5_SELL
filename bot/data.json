@@ -12,12 +12,6 @@
       "invested_lei": 200.0,
       "fx_rate_buy": 4.34
     },
-    "AMZN": {
-      "avg_price": 217.84,
-      "shares": 2.5946446534353096,
-      "invested_lei": 2600.0,
-      "fx_rate_buy": 4.34
-    },
     "CSCO": {
       "avg_price": 60.92,
       "shares": 3.7468954295012704,
@@ -47,7 +41,19 @@
       "shares": 1.01870339431971,
       "invested_lei": 1000.0,
       "fx_rate_buy": 4.34
+    },
+    "GFI": {
+      "avg_price": 33.63,
+      "shares": 3.410017709509554,
+      "invested_lei": 500.0,
+      "fx_rate_buy": 4.360000133514404
+    },
+    "EXPE": {
+      "avg_price": 217.98,
+      "shares": 0.5262068986752265,
+      "invested_lei": 500.0,
+      "fx_rate_buy": 4.359099864959717
     }
   },
-  "realized_pnl": 2549.52
+  "realized_pnl": 2579.8225875367657
 }
