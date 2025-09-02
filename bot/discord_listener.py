@@ -136,7 +136,7 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
 
 
 @bot.command()
-async def sell(ctx, ticker: str, price: float, lei_sold: float):
+async def sell(ctx, ticker: str, price: float, amount: str):
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
@@ -150,10 +150,6 @@ async def sell(ctx, ticker: str, price: float, lei_sold: float):
     shares = float(stocks[ticker]["shares"])
     fx_buy = float(stocks[ticker].get("fx_rate_buy", 4.6))  # fallback
 
-    if lei_sold > invested:
-        await ctx.send(f"⚠️ Cannot sell {lei_sold}, only {invested:.2f} LEI invested.")
-        return
-
     # ✅ Fetch FX rate at sell
     try:
         fx = yf.Ticker("USDRON=X").history(period="1d")
@@ -161,9 +157,25 @@ async def sell(ctx, ticker: str, price: float, lei_sold: float):
     except:
         fx_sell = 4.6
 
-    # Convert LEI sold → USD (at SELL FX)
-    usd_sold = lei_sold / fx_sell
-    shares_sold = usd_sold / price
+    # Handle "all" → sell everything
+    if amount.lower() == "all":
+        lei_sold = invested
+        usd_sold = shares * price
+        shares_sold = shares
+    else:
+        try:
+            lei_sold = float(amount)
+        except ValueError:
+            await ctx.send("⚠️ Invalid amount. Use a number or 'all'.")
+            return
+
+        if lei_sold > invested:
+            await ctx.send(f"⚠️ Cannot sell {lei_sold}, only {invested:.2f} LEI invested.")
+            return
+
+        # Convert LEI sold → USD (at SELL FX)
+        usd_sold = lei_sold / fx_sell
+        shares_sold = usd_sold / price
 
     # Calculate PnL in LEI (adjusting FX at buy vs sell)
     pnl_per_share_usd = price - avg_price
@@ -174,18 +186,17 @@ async def sell(ctx, ticker: str, price: float, lei_sold: float):
 
     # Update stock holdings
     stocks[ticker]["shares"] -= shares_sold
-    stocks[ticker]["invested_lei"] *= stocks[ticker]["shares"] / (stocks[ticker]["shares"] + shares_sold)
-
-
-    if stocks[ticker]["shares"] <= 0:
-        del stocks[ticker]
+    if amount.lower() != "all":
+        stocks[ticker]["invested_lei"] *= stocks[ticker]["shares"] / (stocks[ticker]["shares"] + shares_sold)
+    else:
+        del stocks[ticker]  # sold everything
 
     save_data(data)
-    push_to_github(DATA_FILE, f"Sold {lei_sold} LEI of {ticker} at {price} (FX {fx_sell})")
+    push_to_github(DATA_FILE, f"Sold {amount.upper()} of {ticker} at {price} (FX {fx_sell})")
 
     await ctx.send(
         f"💸 Sold **{ticker}**\n"
-        f"Sell Price: {price:.2f} USD | Amount Sold: {lei_sold:.2f} LEI (FX {fx_sell:.2f})\n"
+        f"Sell Price: {price:.2f} USD | Amount Sold: {amount.upper()} ({lei_sold:.2f} LEI)\n"
         f"PnL: {total_pnl_lei:+.2f} LEI\n"
         f"📊 Cumulative Realized PnL: {data['realized_pnl']:.2f} LEI"
     )
