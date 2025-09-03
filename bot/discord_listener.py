@@ -157,11 +157,11 @@ async def sell(ctx, ticker: str, price: float, amount: str):
     except:
         fx_sell = 4.6
 
-    # Handle "all" → sell everything
+    # Handle "all" → sell everything at market
     if amount.lower() == "all":
-        lei_sold = invested
-        usd_sold = shares * price
         shares_sold = shares
+        usd_sold = shares_sold * price
+        lei_sold = usd_sold * fx_sell  # proceeds in LEI
     else:
         try:
             lei_sold = float(amount)
@@ -177,19 +177,19 @@ async def sell(ctx, ticker: str, price: float, amount: str):
         usd_sold = lei_sold / fx_sell
         shares_sold = usd_sold / price
 
-    # Calculate PnL in LEI (adjusting FX at buy vs sell)
+    # ✅ Realized PnL (USD → LEI)
     pnl_per_share_usd = price - avg_price
     total_pnl_usd = pnl_per_share_usd * shares_sold
-    total_pnl_lei = total_pnl_usd * fx_sell  # final realized in LEI
+    total_pnl_lei = total_pnl_usd * fx_sell  # realized in LEI
 
     data["realized_pnl"] += total_pnl_lei
 
     # Update stock holdings
-    stocks[ticker]["shares"] -= shares_sold
-    if amount.lower() != "all":
-        stocks[ticker]["invested_lei"] *= stocks[ticker]["shares"] / (stocks[ticker]["shares"] + shares_sold)
-    else:
+    if amount.lower() == "all":
         del stocks[ticker]  # sold everything
+    else:
+        stocks[ticker]["shares"] -= shares_sold
+        stocks[ticker]["invested_lei"] *= stocks[ticker]["shares"] / (stocks[ticker]["shares"] + shares_sold)
 
     save_data(data)
     push_to_github(DATA_FILE, f"Sold {amount.upper()} of {ticker} at {price} (FX {fx_sell})")
@@ -209,9 +209,39 @@ async def list(ctx):
     if not stocks:
         await ctx.send("📭 No stocks currently tracked.")
         return
+
+    # ✅ Fetch current FX
+    try:
+        fx = yf.Ticker("USDRON=X").history(period="1d")
+        fx_rate = float(fx["Close"].iloc[-1]) if not fx.empty else 4.6
+    except:
+        fx_rate = 4.6
+
     msg = "**📊 Currently Tracked Stocks:**\n"
     for t, info in stocks.items():
-        msg += f"- {t}: Avg Price: {info['avg_price']:.2f} | Shares: {info['shares']:.2f} | Invested: {info['invested_lei']:.2f} LEI\n"
+        avg_price = float(info["avg_price"])
+        shares = float(info["shares"])
+        invested = float(info["invested_lei"])
+
+        # ✅ Fetch latest price
+        try:
+            px = yf.Ticker(t).history(period="1d")
+            current_price = float(px["Close"].iloc[-1]) if not px.empty else avg_price
+        except:
+            current_price = avg_price
+
+        current_value_usd = current_price * shares
+        current_value_lei = current_value_usd * fx_rate
+
+        pnl_lei = current_value_lei - invested
+        pnl_pct = (pnl_lei / invested * 100) if invested > 0 else 0
+
+        msg += (
+            f"- {t}: Avg Buy: {avg_price:.2f} USD | Shares: {shares:.2f} | "
+            f"Invested: {invested:.2f} LEI | Current: {current_value_lei:.2f} LEI "
+            f"(PnL: {pnl_lei:+.2f} LEI / {pnl_pct:+.2f}%)\n"
+        )
+
     msg += f"\n💰 **Cumulative Realized PnL:** {data['realized_pnl']:.2f} LEI"
     await ctx.send(msg)
 
