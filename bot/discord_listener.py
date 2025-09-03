@@ -236,9 +236,9 @@ async def list(ctx):
         pnl_lei = current_value_lei - invested
         pnl_pct = (pnl_lei / invested * 100) if invested > 0 else 0
 
+        # 🔹 Slimmed-down output
         msg += (
-            f"- {t}: Avg Buy: {avg_price:.2f} USD | Shares: {shares:.2f} | "
-            f"Invested: {invested:.2f} LEI | Current: {current_value_lei:.2f} LEI "
+            f"{t}: Avg Buy: {avg_price:.2f} USD | Current: {current_value_lei:.2f} LEI "
             f"(PnL: {pnl_lei:+.2f} LEI / {pnl_pct:+.2f}%)\n"
         )
 
