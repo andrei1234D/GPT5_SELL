@@ -6,12 +6,6 @@
       "invested_lei": 500.0,
       "fx_rate_buy": 4.34
     },
-    "KOD": {
-      "avg_price": 11.0,
-      "shares": 3.9525691699604746,
-      "invested_lei": 200.0,
-      "fx_rate_buy": 4.34
-    },
     "O": {
       "avg_price": 58.44,
       "shares": 3.3479153646995807,
@@ -43,5 +37,5 @@
       "fx_rate_buy": 4.353499889373779
     }
   },
-  "realized_pnl": 2732.2486461389153
+  "realized_pnl": 2687.507063456905
 }
