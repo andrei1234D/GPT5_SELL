@@ -37,10 +37,10 @@
       "fx_rate_buy": 4.34
     },
     "RL": {
-      "avg_price": 313.0,
-      "shares": 0.22051962573323325,
-      "invested_lei": 300.0,
-      "fx_rate_buy": 4.346399784088135
+      "avg_price": 316.9462629133943,
+      "shares": 0.4351927537913045,
+      "invested_lei": 600.0,
+      "fx_rate_buy": 4.353499889373779
     }
   },
   "realized_pnl": 2732.2486461389153
