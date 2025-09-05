@@ -29,6 +29,12 @@
       "shares": 3.438965157386763,
       "invested_lei": 500.0,
       "fx_rate_buy": 4.323299884796143
+    },
+    "EXPE": {
+      "avg_price": 217.99,
+      "shares": 0.5305153494860481,
+      "invested_lei": 500.0,
+      "fx_rate_buy": 4.323500156402588
     }
   },
   "realized_pnl": 2595.303335169896
