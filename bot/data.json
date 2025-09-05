@@ -41,6 +41,12 @@
       "shares": 4.2051526209376,
       "invested_lei": 200.0,
       "fx_rate_buy": 4.323699951171875
+    },
+    "CRDO": {
+      "avg_price": 138.95,
+      "shares": 1.6636614956057931,
+      "invested_lei": 1000.0,
+      "fx_rate_buy": 4.325900077819824
     }
   },
   "realized_pnl": 2595.303335169896
