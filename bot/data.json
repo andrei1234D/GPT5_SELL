@@ -44,8 +44,8 @@
     },
     "NVDA": {
       "avg_price": 165.0,
-      "shares": 0.14003248531546636,
-      "invested_lei": 100.0,
+      "shares": 0.0,
+      "invested_lei": 0.0,
       "fx_rate_buy": 4.328000068664551
     }
   },
