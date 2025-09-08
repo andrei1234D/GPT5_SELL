@@ -6,42 +6,54 @@
       "invested_lei": 500.0,
       "fx_rate_buy": 4.34
     },
+    "KOD": {
+      "avg_price": 11.0,
+      "shares": 3.9525691699604746,
+      "invested_lei": 200.0,
+      "fx_rate_buy": 4.34
+    },
     "O": {
       "avg_price": 58.44,
       "shares": 3.3479153646995807,
       "invested_lei": 900.0,
       "fx_rate_buy": 4.34
     },
-    "RL": {
-      "avg_price": 318.69774955516317,
-      "shares": 3.0433471923095943,
-      "invested_lei": 4223.24,
-      "fx_rate_buy": 4.354899883270264
-    },
-    "GFI": {
-      "avg_price": 33.63,
-      "shares": 3.438965157386763,
+    "VSAT": {
+      "avg_price": 33.5,
+      "shares": 3.2446463335496434,
       "invested_lei": 500.0,
-      "fx_rate_buy": 4.323299884796143
+      "fx_rate_buy": 4.34
     },
-    "EXPE": {
-      "avg_price": 217.99,
-      "shares": 0.5305153494860481,
-      "invested_lei": 500.0,
-      "fx_rate_buy": 4.323500156402588
-    },
-    "CRDO": {
-      "avg_price": 138.95,
-      "shares": 1.6636614956057931,
+    "GOOGL": {
+      "avg_price": 211.69,
+      "shares": 1.0269323272135014,
       "invested_lei": 1000.0,
-      "fx_rate_buy": 4.325900077819824
+      "fx_rate_buy": 4.34
+    },
+    "GOOG": {
+      "avg_price": 213.4,
+      "shares": 1.01870339431971,
+      "invested_lei": 1000.0,
+      "fx_rate_buy": 4.34
     },
     "NVDA": {
-      "avg_price": 165.0,
-      "shares": 0.0,
-      "invested_lei": 0.0,
-      "fx_rate_buy": 4.328000068664551
+      "avg_price": 172.02,
+      "shares": 0.13374925949405497,
+      "invested_lei": 100.0,
+      "fx_rate_buy": 4.346399784088135
+    },
+    "RL": {
+      "avg_price": 313.0,
+      "shares": 0.22051962573323325,
+      "invested_lei": 300.0,
+      "fx_rate_buy": 4.346399784088135
+    },
+    "W": {
+      "avg_price": 89.59,
+      "shares": 1.2886718267609478,
+      "invested_lei": 500.0,
+      "fx_rate_buy": 4.3308000564575195
     }
   },
-  "realized_pnl": 2557.083543422354
+  "realized_pnl": 2732.2486461389153
 }
