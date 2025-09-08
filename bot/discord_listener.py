@@ -108,20 +108,27 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         old_price = float(stocks[ticker]["avg_price"])
         old_shares = float(stocks[ticker]["shares"])
         old_invested = float(stocks[ticker]["invested_lei"])
+        old_fx = float(stocks[ticker]["fx_rate_buy"])
 
         new_shares = old_shares + shares_bought
+        new_invested = old_invested + lei_invested
+
+        # ✅ Weighted average stock price (USD)
         avg_price = ((old_price * old_shares) + (price * shares_bought)) / new_shares
+
+        # ✅ Weighted average FX
+        weighted_fx = ((old_fx * old_invested) + (fx_rate * lei_invested)) / new_invested
 
         stocks[ticker]["avg_price"] = float(avg_price)
         stocks[ticker]["shares"] = float(new_shares)
-        stocks[ticker]["invested_lei"] = float(old_invested + lei_invested)
-        stocks[ticker]["fx_rate_buy"] = fx_rate
+        stocks[ticker]["invested_lei"] = float(new_invested)
+        stocks[ticker]["fx_rate_buy"] = float(weighted_fx)
     else:
         stocks[ticker] = {
             "avg_price": float(price),       # in USD
             "shares": float(shares_bought),
             "invested_lei": float(lei_invested),
-            "fx_rate_buy": fx_rate           # store FX at buy
+            "fx_rate_buy": float(fx_rate)    # store FX at buy
         }
 
     save_data(data)
