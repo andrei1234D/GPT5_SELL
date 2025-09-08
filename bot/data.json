@@ -41,6 +41,12 @@
       "shares": 3.4447017570279925,
       "invested_lei": 500.0,
       "fx_rate_buy": 4.316100120544434
+    },
+    "RYTM": {
+      "avg_price": 99.9,
+      "shares": 1.6346557742345953,
+      "invested_lei": 704.42,
+      "fx_rate_buy": 4.313600063323975
     }
   },
   "realized_pnl": 2782.8605924872422
