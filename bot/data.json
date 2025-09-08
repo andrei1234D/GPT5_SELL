@@ -18,12 +18,6 @@
       "invested_lei": 900.0,
       "fx_rate_buy": 4.34
     },
-    "VSAT": {
-      "avg_price": 33.5,
-      "shares": 3.2446463335496434,
-      "invested_lei": 500.0,
-      "fx_rate_buy": 4.34
-    },
     "GOOGL": {
       "avg_price": 211.69,
       "shares": 1.0269323272135014,
@@ -55,5 +49,5 @@
       "fx_rate_buy": 4.3308000564575195
     }
   },
-  "realized_pnl": 2732.2486461389153
+  "realized_pnl": 2691.6307683099103
 }
