@@ -152,62 +152,66 @@ async def sell(ctx, ticker: str, price: float, amount: str):
         await ctx.send(f"⚠️ {ticker} is not being tracked.")
         return
 
-    avg_price = float(stocks[ticker]["avg_price"])      # in USD
-    invested = float(stocks[ticker]["invested_lei"])    # in LEI
-    shares = float(stocks[ticker]["shares"])
-    fx_buy = float(stocks[ticker].get("fx_rate_buy", 4.6))  # fallback
+    avg_price_usd = float(stocks[ticker]["avg_price"])     # kept for info
+    invested_lei = float(stocks[ticker]["invested_lei"])   # total LEI cost basis
+    total_shares = float(stocks[ticker]["shares"])
 
-    # ✅ Fetch FX rate at sell
+    # ✅ Fetch FX at sell
     try:
         fx = yf.Ticker("USDRON=X").history(period="1d")
         fx_sell = float(fx["Close"].iloc[-1]) if not fx.empty else 4.6
     except:
         fx_sell = 4.6
 
-    # Handle "all" → sell everything at market
+    # Determine shares_sold and lei_proceeds
     if amount.lower() == "all":
-        shares_sold = shares
-        usd_sold = shares_sold * price
-        lei_sold = usd_sold * fx_sell  # proceeds in LEI
+        shares_sold = total_shares
+        usd_proceeds = shares_sold * price
+        lei_proceeds = usd_proceeds * fx_sell
     else:
         try:
-            lei_sold = float(amount)
+            lei_proceeds = float(amount)
         except ValueError:
-            await ctx.send("⚠️ Invalid amount. Use a number or 'all'.")
+            await ctx.send("⚠️ Invalid amount. Use a number (LEI proceeds) or 'all'.")
+            return
+        if lei_proceeds <= 0:
+            await ctx.send("⚠️ Amount must be positive.")
+            return
+        # Convert LEI proceeds to USD, then to shares to sell (using SELL fx)
+        usd_proceeds = lei_proceeds / fx_sell
+        shares_sold = usd_proceeds / price
+
+        if shares_sold > total_shares + 1e-9:
+            await ctx.send(f"⚠️ Not enough shares. You have {total_shares:.4f} shares.")
             return
 
-        if lei_sold > invested:
-            await ctx.send(f"⚠️ Cannot sell {lei_sold}, only {invested:.2f} LEI invested.")
-            return
+    # 🔢 Proportional LEI cost basis (captures FX at buys)
+    share_ratio = shares_sold / total_shares if total_shares > 0 else 0.0
+    cost_basis_lei = invested_lei * share_ratio
 
-        # Convert LEI sold → USD (at SELL FX)
-        usd_sold = lei_sold / fx_sell
-        shares_sold = usd_sold / price
+    # ✅ Realized PnL in LEI (includes FX effect)
+    pnl_lei = lei_proceeds - cost_basis_lei
+    data["realized_pnl"] += pnl_lei
 
-    # ✅ Realized PnL (USD → LEI)
-    pnl_per_share_usd = price - avg_price
-    total_pnl_usd = pnl_per_share_usd * shares_sold
-    total_pnl_lei = total_pnl_usd * fx_sell  # realized in LEI
-
-    data["realized_pnl"] += total_pnl_lei
-
-    # Update stock holdings
-    if amount.lower() == "all":
-        del stocks[ticker]  # sold everything
+    # 🧾 Update holdings
+    remaining_shares = total_shares - shares_sold
+    if remaining_shares <= 1e-9:
+        # sold everything
+        del stocks[ticker]
     else:
-        stocks[ticker]["shares"] -= shares_sold
-        stocks[ticker]["invested_lei"] *= stocks[ticker]["shares"] / (stocks[ticker]["shares"] + shares_sold)
+        stocks[ticker]["shares"] = remaining_shares
+        stocks[ticker]["invested_lei"] = invested_lei - cost_basis_lei
+        # avg_price_usd can stay as-is; recalculating is optional since cost basis is tracked in LEI
 
     save_data(data)
     push_to_github(DATA_FILE, f"Sold {amount.upper()} of {ticker} at {price} (FX {fx_sell})")
 
     await ctx.send(
         f"💸 Sold **{ticker}**\n"
-        f"Sell Price: {price:.2f} USD | Amount Sold: {amount.upper()} ({lei_sold:.2f} LEI)\n"
-        f"PnL: {total_pnl_lei:+.2f} LEI\n"
+        f"Sell Price: {price:.2f} USD | Proceeds: {lei_proceeds:.2f} LEI | FX: {fx_sell:.4f}\n"
+        f"PnL (realized): {pnl_lei:+.2f} LEI\n"
         f"📊 Cumulative Realized PnL: {data['realized_pnl']:.2f} LEI"
     )
-
 
 @bot.command()
 async def list(ctx):
