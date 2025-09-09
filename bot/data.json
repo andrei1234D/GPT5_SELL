@@ -6,17 +6,17 @@
       "invested_lei": 500.0,
       "fx_rate_buy": 4.34
     },
-    "O": {
-      "avg_price": 58.44,
-      "shares": 3.3479153646995807,
-      "invested_lei": 900.0,
-      "fx_rate_buy": 4.34
+    "NVDA": {
+      "avg_price": 172.02,
+      "shares": 0.13374925949405497,
+      "invested_lei": 100.0,
+      "fx_rate_buy": 4.346399784088135
     },
     "RL": {
-      "avg_price": 315.52449568827166,
-      "shares": 4.787912727484291,
-      "invested_lei": 6523.24,
-      "fx_rate_buy": 4.316777263861143
+      "avg_price": 318.31660157857897,
+      "shares": 3.290326080314315,
+      "invested_lei": 4523.24,
+      "fx_rate_buy": 4.31689977645874
     },
     "W": {
       "avg_price": 89.59,
@@ -35,19 +35,7 @@
       "shares": 3.4447017570279925,
       "invested_lei": 500.0,
       "fx_rate_buy": 4.316100120544434
-    },
-    "RYTM": {
-      "avg_price": 99.9,
-      "shares": 1.6346557742345953,
-      "invested_lei": 704.42,
-      "fx_rate_buy": 4.313600063323975
-    },
-    "NVDA": {
-      "avg_price": 167.72,
-      "shares": 0.13788895264472423,
-      "invested_lei": 100.0,
-      "fx_rate_buy": 4.323999881744385
     }
   },
-  "realized_pnl": 2765.275906071067
+  "realized_pnl": 2782.8605924872422
 }
