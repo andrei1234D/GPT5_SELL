@@ -41,6 +41,12 @@
       "shares": 0.22858637593755532,
       "invested_lei": 100.0,
       "fx_rate_buy": 4.331399917602539
+    },
+    "DDS": {
+      "avg_price": 573.4,
+      "shares": 0.0402572261065121,
+      "invested_lei": 100.0,
+      "fx_rate_buy": 4.332099914550781
     }
   },
   "realized_pnl": 2789.3304135298004
