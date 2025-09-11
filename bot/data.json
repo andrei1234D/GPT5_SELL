@@ -29,6 +29,12 @@
       "shares": 3.4447017570279925,
       "invested_lei": 500.0,
       "fx_rate_buy": 4.316100120544434
+    },
+    "XERS": {
+      "avg_price": 7.8,
+      "shares": 5.934598307256597,
+      "invested_lei": 200.0,
+      "fx_rate_buy": 4.3206000328063965
     }
   },
   "realized_pnl": 2948.630220008399
