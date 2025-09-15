@@ -41,6 +41,12 @@
       "shares": 0.040384734617086776,
       "invested_lei": 100.0,
       "fx_rate_buy": 4.3190999031066895
+    },
+    "APLD": {
+      "avg_price": 18.78,
+      "shares": 2.468906327110297,
+      "invested_lei": 200.0,
+      "fx_rate_buy": 4.313499927520752
     }
   },
   "realized_pnl": 2947.161002732055
