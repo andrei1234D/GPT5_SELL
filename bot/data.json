@@ -24,30 +24,24 @@
       "invested_lei": 500.0,
       "fx_rate_buy": 4.3308000564575195
     },
+    "CRDO": {
+      "avg_price": 138.95,
+      "shares": 1.7083788521322765,
+      "invested_lei": 1024.6,
+      "fx_rate_buy": 4.316299915313721
+    },
     "GFI": {
       "avg_price": 33.63,
       "shares": 3.4447017570279925,
       "invested_lei": 500.0,
       "fx_rate_buy": 4.316100120544434
     },
-    "METC": {
-      "avg_price": 24.678374613366397,
-      "shares": 0.9315138250575287,
-      "invested_lei": 99.19198569125807,
-      "fx_rate_buy": 4.314899921417236
-    },
-    "DDS": {
-      "avg_price": 573.31,
-      "shares": 0.040384734617086776,
+    "XERS": {
+      "avg_price": 7.7,
+      "shares": 3.0458775148484882,
       "invested_lei": 100.0,
-      "fx_rate_buy": 4.3190999031066895
-    },
-    "APLD": {
-      "avg_price": 18.78,
-      "shares": 2.468906327110297,
-      "invested_lei": 200.0,
-      "fx_rate_buy": 4.313499927520752
+      "fx_rate_buy": 4.263800144195557
     }
   },
-  "realized_pnl": 2947.161002732055
+  "realized_pnl": 2782.8605924872422
 }
