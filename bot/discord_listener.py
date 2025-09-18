@@ -9,7 +9,6 @@ import requests
 import yfinance as yf
 from threading import Thread
 
-
 # ✅ Auto-install required packages if missing
 required = ["discord.py", "requests"]
 for pkg in required:
@@ -74,6 +73,29 @@ def push_to_github(file_path, commit_message="Auto-update data.json from Discord
 
 
 # ---------------------------
+# Helpers
+# ---------------------------
+def get_fx_usdron(default=4.6):
+    try:
+        fx = yf.Ticker("USDRON=X").history(period="1d")
+        return float(fx["Close"].iloc[-1]) if not fx.empty else default
+    except Exception:
+        return default
+
+
+def smooth_fx_toward(old_fx: float, new_fx: float, weight: float) -> float:
+    """
+    Move old_fx toward new_fx by 'weight'. Weight should be in [0,1].
+    Example: weight=0.1 -> new = 90% old + 10% new.
+    """
+    if weight <= 0:
+        return old_fx
+    if weight >= 1:
+        return new_fx
+    return old_fx * (1 - weight) + new_fx * weight
+
+
+# ---------------------------
 # Discord Bot Setup
 # ---------------------------
 intents = discord.Intents.default()
@@ -90,16 +112,17 @@ async def on_ready():
 # ---------------------------
 @bot.command()
 async def buy(ctx, ticker: str, price: float, lei_invested: float):
+    """
+    Buy in LEI at a given USD price. Shares are computed via USD amount using current USDRON FX.
+    FX tracking (fx_rate_buy) is updated by *smoothing toward the current FX* based on the
+    size of this buy relative to the existing invested_lei.
+    """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
 
     # ✅ Fetch FX rate at purchase
-    try:
-        fx = yf.Ticker("USDRON=X").history(period="1d")
-        fx_rate = float(fx["Close"].iloc[-1]) if not fx.empty else 4.6
-    except:
-        fx_rate = 4.6
+    fx_rate = get_fx_usdron()
 
     usd_invested = lei_invested / fx_rate
     shares_bought = usd_invested / price
@@ -108,42 +131,49 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         old_price = float(stocks[ticker]["avg_price"])
         old_shares = float(stocks[ticker]["shares"])
         old_invested = float(stocks[ticker]["invested_lei"])
-        old_fx = float(stocks[ticker]["fx_rate_buy"])
+        old_fx = float(stocks[ticker].get("fx_rate_buy", fx_rate))
 
         new_shares = old_shares + shares_bought
         new_invested = old_invested + lei_invested
 
-        # ✅ Weighted average stock price (USD)
-        avg_price = ((old_price * old_shares) + (price * shares_bought)) / new_shares
+        # ✅ Weighted average stock price (USD) by shares
+        avg_price = ((old_price * old_shares) + (price * shares_bought)) / new_shares if new_shares > 0 else price
 
-        # ✅ Weighted average FX
-        weighted_fx = ((old_fx * old_invested) + (fx_rate * lei_invested)) / new_invested
+        # ✅ FX smoothing based on transaction size vs *existing* invested_lei
+        # Example: buy 100 when you have 1000 invested -> weight=0.1
+        weight = (lei_invested / old_invested) if old_invested > 0 else 1.0
+        new_fx_smoothed = smooth_fx_toward(old_fx, fx_rate, max(0.0, min(1.0, weight)))
 
         stocks[ticker]["avg_price"] = float(avg_price)
         stocks[ticker]["shares"] = float(new_shares)
         stocks[ticker]["invested_lei"] = float(new_invested)
-        stocks[ticker]["fx_rate_buy"] = float(weighted_fx)
+        stocks[ticker]["fx_rate_buy"] = float(new_fx_smoothed)
     else:
         stocks[ticker] = {
             "avg_price": float(price),       # in USD
             "shares": float(shares_bought),
             "invested_lei": float(lei_invested),
-            "fx_rate_buy": float(fx_rate)    # store FX at buy
+            "fx_rate_buy": float(fx_rate)    # initial FX is today's buy FX
         }
 
     save_data(data)
     push_to_github(DATA_FILE, f"Bought {lei_invested} LEI of {ticker} at {price} (FX {fx_rate})")
     await ctx.send(
         f"✅ Now tracking **{ticker}** | Avg Buy Price: {stocks[ticker]['avg_price']:.2f} USD | "
-        f"Shares: {stocks[ticker]['shares']:.2f} | Invested: {stocks[ticker]['invested_lei']:.2f} LEI "
-        f"(FX at buy: {fx_rate:.2f})"
+        f"Shares: {stocks[ticker]['shares']:.4f} | Invested: {stocks[ticker]['invested_lei']:.2f} LEI "
+        f"(FX ref: {stocks[ticker]['fx_rate_buy']:.4f}, latest: {fx_rate:.4f})"
     )
-
-
 
 
 @bot.command()
 async def sell(ctx, ticker: str, price: float, amount: str):
+    """
+    Sell at a given USD price.
+    - 'amount' can be 'all' or a number in LEI (proceeds target).
+    - Realized PnL is computed in LEI (includes FX).
+    - FX reference is *smoothed toward the sell FX* by the ratio of LEI proceeds vs existing invested_lei.
+      Example: sell 100 LEI with 1000 LEI invested -> fx_rate_buy moves 10% toward today's FX.
+    """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
@@ -153,15 +183,12 @@ async def sell(ctx, ticker: str, price: float, amount: str):
         return
 
     avg_price_usd = float(stocks[ticker]["avg_price"])     # kept for info
-    invested_lei = float(stocks[ticker]["invested_lei"])   # total LEI cost basis
+    invested_lei = float(stocks[ticker]["invested_lei"])   # total LEI cost basis (pre-sell)
     total_shares = float(stocks[ticker]["shares"])
+    fx_ref = float(stocks[ticker].get("fx_rate_buy", get_fx_usdron()))
 
     # ✅ Fetch FX at sell
-    try:
-        fx = yf.Ticker("USDRON=X").history(period="1d")
-        fx_sell = float(fx["Close"].iloc[-1]) if not fx.empty else 4.6
-    except:
-        fx_sell = 4.6
+    fx_sell = get_fx_usdron()
 
     # Determine shares_sold and lei_proceeds
     if amount.lower() == "all":
@@ -199,19 +226,26 @@ async def sell(ctx, ticker: str, price: float, amount: str):
         # sold everything
         del stocks[ticker]
     else:
-        stocks[ticker]["shares"] = remaining_shares
-        stocks[ticker]["invested_lei"] = invested_lei - cost_basis_lei
-        # avg_price_usd can stay as-is; recalculating is optional since cost basis is tracked in LEI
+        # Smooth FX toward today's *sell* FX by LEI proceeds vs existing invested_lei (pre-sell)
+        weight = (lei_proceeds / invested_lei) if invested_lei > 0 else 1.0
+        new_fx_smoothed = smooth_fx_toward(fx_ref, fx_sell, max(0.0, min(1.0, weight)))
+
+        stocks[ticker]["shares"] = float(remaining_shares)
+        stocks[ticker]["invested_lei"] = float(invested_lei - cost_basis_lei)
+        stocks[ticker]["avg_price"] = float(avg_price_usd)  # USD avg stays
+        stocks[ticker]["fx_rate_buy"] = float(new_fx_smoothed)
 
     save_data(data)
     push_to_github(DATA_FILE, f"Sold {amount.upper()} of {ticker} at {price} (FX {fx_sell})")
 
     await ctx.send(
         f"💸 Sold **{ticker}**\n"
-        f"Sell Price: {price:.2f} USD | Proceeds: {lei_proceeds:.2f} LEI | FX: {fx_sell:.4f}\n"
+        f"Sell Price: {price:.2f} USD | Proceeds: {lei_proceeds:.2f} LEI | FX now: {fx_sell:.4f}\n"
         f"PnL (realized): {pnl_lei:+.2f} LEI\n"
         f"📊 Cumulative Realized PnL: {data['realized_pnl']:.2f} LEI"
+        + ("" if ticker not in stocks else f"\n🔁 FX ref after smoothing: {stocks[ticker]['fx_rate_buy']:.4f}")
     )
+
 
 @bot.command()
 async def list(ctx):
@@ -222,11 +256,7 @@ async def list(ctx):
         return
 
     # ✅ Fetch current FX
-    try:
-        fx = yf.Ticker("USDRON=X").history(period="1d")
-        fx_rate = float(fx["Close"].iloc[-1]) if not fx.empty else 4.6
-    except:
-        fx_rate = 4.6
+    fx_rate = get_fx_usdron()
 
     msg = "**📊 Currently Tracked Stocks:**\n"
     for t, info in stocks.items():
@@ -238,7 +268,7 @@ async def list(ctx):
         try:
             px = yf.Ticker(t).history(period="1d")
             current_price = float(px["Close"].iloc[-1]) if not px.empty else avg_price
-        except:
+        except Exception:
             current_price = avg_price
 
         current_value_usd = current_price * shares
@@ -247,10 +277,9 @@ async def list(ctx):
         pnl_lei = current_value_lei - invested
         pnl_pct = (pnl_lei / invested * 100) if invested > 0 else 0
 
-        # 🔹 Slimmed-down output
         msg += (
             f"{t}: Avg Buy: {avg_price:.2f} USD | Current: {current_value_lei:.2f} LEI "
-            f"(PnL: {pnl_lei:+.2f} LEI / {pnl_pct:+.2f}%)\n"
+            f"(PnL: {pnl_lei:+.2f} LEI / {pnl_pct:+.2f}%) | FX ref: {float(info.get('fx_rate_buy', fx_rate)):.4f}\n"
         )
 
     msg += f"\n💰 **Cumulative Realized PnL:** {data['realized_pnl']:.2f} LEI"
@@ -268,7 +297,7 @@ async def pnl(ctx):
 # ---------------------------
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-    if not TOKEN:
+    if not TOKEN:\
         print("❌ ERROR: DISCORD_BOT_TOKEN is not set")
     else:
         Thread(target=keep_alive).start()
