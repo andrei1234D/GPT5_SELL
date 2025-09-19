@@ -35,6 +35,12 @@
       "shares": 1.461275878605118,
       "invested_lei": 200.0,
       "fx_rate_buy": 4.316199779510498
+    },
+    "METC": {
+      "avg_price": 24.88,
+      "shares": 0.9312109748908419,
+      "invested_lei": 100.0,
+      "fx_rate_buy": 4.316199779510498
     }
   },
   "realized_pnl": 2557.716088158365
