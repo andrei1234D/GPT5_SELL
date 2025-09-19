@@ -29,6 +29,12 @@
       "shares": 16.131549547251314,
       "invested_lei": 500.0,
       "fx_rate_buy": 4.281099796295166
+    },
+    "ACFN": {
+      "avg_price": 31.71,
+      "shares": 1.461275878605118,
+      "invested_lei": 200.0,
+      "fx_rate_buy": 4.316199779510498
     }
   },
   "realized_pnl": 2557.716088158365
