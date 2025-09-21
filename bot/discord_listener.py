@@ -114,8 +114,8 @@ async def on_ready():
 async def buy(ctx, ticker: str, price: float, lei_invested: float):
     """
     Buy in LEI at a given USD price. Shares are computed via USD amount using current USDRON FX.
-    FX tracking (fx_rate_buy) is updated by *smoothing toward the current FX* based on the
-    size of this buy relative to the existing invested_lei.
+    FX tracking (fx_rate_buy) is updated by smoothing toward today's FX based on the size of the buy
+    relative to the total invested LEI after the transaction.
     """
     ticker = ticker.upper()
     data = load_data()
@@ -139,9 +139,8 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         # ✅ Weighted average stock price (USD) by shares
         avg_price = ((old_price * old_shares) + (price * shares_bought)) / new_shares if new_shares > 0 else price
 
-        # ✅ FX smoothing based on transaction size vs *existing* invested_lei
-        # Example: buy 100 when you have 1000 invested -> weight=0.1
-        weight = (lei_invested / old_invested) if old_invested > 0 else 1.0
+        # ✅ FX smoothing based on new buy vs total post-buy invested
+        weight = (lei_invested / new_invested) if new_invested > 0 else 1.0
         new_fx_smoothed = smooth_fx_toward(old_fx, fx_rate, max(0.0, min(1.0, weight)))
 
         stocks[ticker]["avg_price"] = float(avg_price)
@@ -171,8 +170,7 @@ async def sell(ctx, ticker: str, price: float, amount: str):
     Sell at a given USD price.
     - 'amount' can be 'all' or a number in LEI (proceeds target).
     - Realized PnL is computed in LEI (includes FX).
-    - FX reference is *smoothed toward the sell FX* by the ratio of LEI proceeds vs existing invested_lei.
-      Example: sell 100 LEI with 1000 LEI invested -> fx_rate_buy moves 10% toward today's FX.
+    - FX reference is smoothed toward today's FX based on the proportion of invested LEI being sold.
     """
     ticker = ticker.upper()
     data = load_data()
@@ -226,8 +224,8 @@ async def sell(ctx, ticker: str, price: float, amount: str):
         # sold everything
         del stocks[ticker]
     else:
-        # Smooth FX toward today's *sell* FX by LEI proceeds vs existing invested_lei (pre-sell)
-        weight = (lei_proceeds / invested_lei) if invested_lei > 0 else 1.0
+        # Smooth FX toward today's sell FX by ratio of cost_basis_lei vs total invested_lei
+        weight = (cost_basis_lei / invested_lei) if invested_lei > 0 else 1.0
         new_fx_smoothed = smooth_fx_toward(fx_ref, fx_sell, max(0.0, min(1.0, weight)))
 
         stocks[ticker]["shares"] = float(remaining_shares)
@@ -297,7 +295,7 @@ async def pnl(ctx):
 # ---------------------------
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-    if not TOKEN:\
+    if not TOKEN:
         print("❌ ERROR: DISCORD_BOT_TOKEN is not set")
     else:
         Thread(target=keep_alive).start()
