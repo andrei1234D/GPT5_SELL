@@ -31,6 +31,7 @@ def load_data():
 
 
 def save_data(data):
+    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
@@ -102,8 +103,43 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+
+def pull_from_github(file_path=DATA_FILE):
+    """Fetch latest file from GitHub repo and overwrite local copy."""
+    try:
+        GH_TOKEN = os.getenv("GH_TOKEN")
+        if not GH_TOKEN:
+            print("⚠️ GitHub token not set in secrets (GH_TOKEN)")
+            return
+
+        repo = "andrei1234D/GPT5_SELL"
+        branch = "main"
+        api_url = f"https://api.github.com/repos/{repo}/contents/{file_path}?ref={branch}"
+
+        res = requests.get(api_url, headers={"Authorization": f"token {GH_TOKEN}"})
+        if res.status_code == 200:
+            response_json = res.json()
+            if "content" not in response_json:
+                print("❌ GitHub response missing 'content':", response_json)
+                return
+            content = base64.b64decode(response_json["content"]).decode()
+
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, "w") as f:
+                f.write(content)
+            print(f"✅ Pulled latest {file_path} from GitHub")
+        else:
+            print("❌ GitHub pull failed:", res.text)
+    except Exception as e:
+        print(f"⚠️ Error pulling from GitHub: {e}")
+
+
 @bot.event
 async def on_ready():
+    try:
+        pull_from_github(DATA_FILE)
+    except Exception as e:
+        print(f"⚠️ Skipped GitHub pull at startup: {e}")
     print(f"✅ Logged in as {bot.user}")
 
 
@@ -247,8 +283,10 @@ async def sell(ctx, ticker: str, price: float, amount: str):
 
 @bot.command()
 async def list(ctx):
+    pull_from_github(DATA_FILE)
     data = load_data()
     stocks = data["stocks"]
+
     if not stocks:
         await ctx.send("📭 No stocks currently tracked.")
         return
@@ -298,5 +336,7 @@ if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERROR: DISCORD_BOT_TOKEN is not set")
     else:
+        print("✅ DISCORD_BOT_TOKEN found, length:", len(TOKEN))
+        print("Preview:", TOKEN[:8], "...")
         Thread(target=keep_alive).start()
         bot.run(TOKEN)
