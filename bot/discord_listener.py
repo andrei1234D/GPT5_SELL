@@ -102,8 +102,35 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+def pull_from_github(file_path=DATA_FILE):
+    """Fetch latest file from GitHub repo and overwrite local copy."""
+    try:
+        GH_TOKEN = os.getenv("GH_TOKEN")
+        if not GH_TOKEN:
+            print("⚠️ GitHub token not set in secrets (GH_TOKEN)")
+            return
+
+        repo = "andrei1234D/GPT5_SELL"
+        branch = "main"
+        api_url = f"https://api.github.com/repos/{repo}/contents/{file_path}?ref={branch}"
+
+        res = requests.get(api_url, headers={"Authorization": f"token {GH_TOKEN}"})
+        if res.status_code == 200:
+            content = base64.b64decode(res.json()["content"]).decode()
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, "w") as f:
+                f.write(content)
+            print(f"✅ Pulled latest {file_path} from GitHub")
+        else:
+            print("❌ GitHub pull failed:", res.text)
+    except Exception as e:
+        print(f"⚠️ Error pulling from GitHub: {e}")
+
+
+
 @bot.event
 async def on_ready():
+    pull_from_github(DATA_FILE)
     print(f"✅ Logged in as {bot.user}")
 
 
@@ -247,8 +274,10 @@ async def sell(ctx, ticker: str, price: float, amount: str):
 
 @bot.command()
 async def list(ctx):
+    pull_from_github(DATA_FILE)
     data = load_data()
     stocks = data["stocks"]
+
     if not stocks:
         await ctx.send("📭 No stocks currently tracked.")
         return
