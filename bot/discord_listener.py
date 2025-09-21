@@ -116,7 +116,12 @@ def pull_from_github(file_path=DATA_FILE):
 
         res = requests.get(api_url, headers={"Authorization": f"token {GH_TOKEN}"})
         if res.status_code == 200:
-            content = base64.b64decode(res.json()["content"]).decode()
+            response_json = res.json()
+            if "content" not in response_json:
+                print("❌ GitHub response missing 'content':", response_json)
+                return
+            content = base64.b64decode(response_json["content"]).decode()
+
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w") as f:
                 f.write(content)
@@ -130,9 +135,11 @@ def pull_from_github(file_path=DATA_FILE):
 
 @bot.event
 async def on_ready():
-    pull_from_github(DATA_FILE)
+    try:
+        pull_from_github(DATA_FILE)
+    except Exception as e:
+        print(f"⚠️ Skipped GitHub pull at startup: {e}")
     print(f"✅ Logged in as {bot.user}")
-
 
 # ---------------------------
 # Bot Commands
