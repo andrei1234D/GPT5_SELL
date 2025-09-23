@@ -42,12 +42,6 @@
       "invested_lei": 800.0,
       "fx_rate_buy": 4.311912298202515
     },
-    "APLD": {
-      "avg_price": 18.78,
-      "shares": 2.4675904338182706,
-      "invested_lei": 200.0,
-      "fx_rate_buy": 4.315800189971924
-    },
     "COMM": {
       "avg_price": 16.3,
       "shares": 14.230305073334003,
@@ -61,5 +55,5 @@
       "fx_rate_buy": 4.297599792480469
     }
   },
-  "realized_pnl": 2559.4128366116493
+  "realized_pnl": 2611.222112309802
 }
