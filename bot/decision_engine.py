@@ -135,7 +135,7 @@ def check_sell_conditions(ticker: str, buy_price: float, current_price: float,
     # --- Exit Conditions ---
     # Profit-taking safeguard
     print(f"🧮 DEBUG {ticker}: Score={score}, Reasons={reasons}")
-    if pnl_pct >= 23 and score >= 3:
+    if pnl_pct >= 25 and score >= 3:
         reason_text = " | ".join(reasons)
         return True, f"🎯 Profit target reached (+25%) with weakening signals (score {score}): {reason_text}", current_price
 
