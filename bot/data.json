@@ -1,11 +1,5 @@
 {
   "stocks": {
-    "ONDS": {
-      "avg_price": 4.79,
-      "shares": 24.08,
-      "invested_lei": 500.0,
-      "fx_rate_buy": 4.34
-    },
     "RL": {
       "avg_price": 318.31660157857897,
       "shares": 3.290326080314315,
@@ -55,5 +49,5 @@
       "fx_rate_buy": 4.302089189536246
     }
   },
-  "realized_pnl": 2611.222112309802
+  "realized_pnl": 2879.2509602468135
 }
