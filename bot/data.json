@@ -47,6 +47,12 @@
       "shares": 25.352084135381823,
       "invested_lei": 1879.87,
       "fx_rate_buy": 4.307097983091291
+    },
+    "NVDA": {
+      "avg_price": 176.57,
+      "shares": 0.3860399860221745,
+      "invested_lei": 295.93,
+      "fx_rate_buy": 4.3414998054504395
     }
   },
   "realized_pnl": 2808.70956434176
