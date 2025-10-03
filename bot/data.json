@@ -65,6 +65,12 @@
       "shares": 0.13304299559210514,
       "invested_lei": 500.0,
       "fx_rate_buy": 4.337399959564209
+    },
+    "CGG": {
+      "avg_price": 26.68,
+      "shares": 5.022151543363337,
+      "invested_lei": 580.65,
+      "fx_rate_buy": 4.333499908447266
     }
   },
   "realized_pnl": 2808.538895432227
