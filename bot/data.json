@@ -59,6 +59,12 @@
       "shares": 2.670547677525985,
       "invested_lei": 3650.0,
       "fx_rate_buy": 4.330399990081787
+    },
+    "CDE": {
+      "avg_price": 19.58,
+      "shares": 13.535165594186118,
+      "invested_lei": 1150.79,
+      "fx_rate_buy": 4.342299938201904
     }
   },
   "realized_pnl": 2805.438795930616
