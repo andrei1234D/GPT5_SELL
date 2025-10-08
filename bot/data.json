@@ -59,6 +59,12 @@
       "shares": 4.026088093417595,
       "invested_lei": 1054.48,
       "fx_rate_buy": 4.344199791147047
+    },
+    "PSIX": {
+      "avg_price": 107.0,
+      "shares": 0.22745510065844585,
+      "invested_lei": 106.75,
+      "fx_rate_buy": 4.386199951171875
     }
   },
   "realized_pnl": 2883.776523184341
