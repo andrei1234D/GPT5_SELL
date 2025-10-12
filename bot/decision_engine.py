@@ -49,17 +49,19 @@ def check_sell_conditions(
     macd=None, macd_signal=None,
     bb_upper=None, bb_lower=None,
     resistance=None, support=None,
-    info=None,  # optional dict to store state between runs
+    info=None,  # optional dict to persist state between runs
     debug=True
 ):
     """
-    Enhanced sell condition logic with persistence, recovery, and adaptive profit logic.
+    Enhanced sell condition logic with persistence, recovery, and adaptive profit logic,
+    while keeping your original scoring and debug output format.
     """
 
+    # Ensure info dict exists
     if info is None:
         info = {}
 
-    # Initialize state tracking
+    # Initialize persistent trackers
     if "weak_streak" not in info:
         info["weak_streak"] = 0
     if "recent_peak" not in info:
@@ -75,8 +77,8 @@ def check_sell_conditions(
             return False, f"📈 Market bullish, avoid panic selling at deep loss.", current_price
         return True, f"🛑 Smart Stop Loss Triggered (-25%).", current_price
 
-    # --- UPDATE WEAKNESS STREAK ---
-    # Tracks consecutive weak readings (hourly basis)
+    # --- CONSECUTIVE WEAKNESS TRACKING ---
+    # increment when RSI/momentum weak or price below MA50
     if (momentum is not None and momentum < 0) or (rsi is not None and rsi < 45) or (ma50 and current_price < ma50):
         info["weak_streak"] += 1
     else:
@@ -87,7 +89,7 @@ def check_sell_conditions(
             print(f"⏳ {ticker}: Weak {info['weak_streak']}/3 — waiting confirmation")
         return False, f"🕐 Weakness streak {info['weak_streak']}/3 — waiting confirmation", current_price
 
-    # --- SCORE-BASED LOGIC ---
+    # --- SCORING LOGIC (unchanged core structure) ---
     score = 0
     reasons = []
 
@@ -99,9 +101,9 @@ def check_sell_conditions(
     # MACD crossover = mid-term reversal
     if macd is not None and macd_signal is not None and macd < macd_signal:
         score += 1.5
-        reasons.append("📉 MACD Bearish Crossover")
+        reasons.append("📉 MACD Bearish Crossover (mid-term trend)")
 
-    # Overbought RSI
+    # Overbought RSI (less mid-term)
     if rsi is not None and rsi > 70:
         score += 0.5
         reasons.append("📉 RSI Overbought (>70)")
@@ -114,37 +116,37 @@ def check_sell_conditions(
         score += 2
         reasons.append("📉 Price below MA200 (long-term support lost)")
 
-    # ATR volatility + loss
+    # ATR + loss risk
     if atr is not None and atr > 7 and pnl_pct < -10:
         score += 0.5
         reasons.append("⚡ High ATR + Loss")
 
-    # Bollinger upper stretch
+    # Bollinger stretch
     if bb_upper is not None and current_price > bb_upper:
         score += 0.5
-        reasons.append("📉 Above Upper Bollinger Band")
+        reasons.append("📉 Price above Upper Bollinger Band (stretch)")
 
-    # Support / Resistance & Volume
+    # Support / Resistance & Volume checks
     if support is not None and current_price < support:
         if (rsi is not None and rsi < 45) or (momentum is not None and momentum < 0):
             score += 2
             reasons.append("📉 Broke Support with Weak RSI/Momentum")
         else:
-            reasons.append("⚠️ Touched Support (no confirmation)")
+            reasons.append("⚠️ Touched Support but no confirmation (watch)")
 
     if resistance is not None and current_price < resistance:
         if rsi is not None and rsi > 65:
             score += 1
             reasons.append("📉 Rejected at Resistance + Overbought RSI")
         else:
-            reasons.append("⚠️ Near Resistance (no overbought RSI)")
+            reasons.append("⚠️ Near Resistance but RSI not overbought")
 
     if bb_lower is not None and current_price < bb_lower:
         if rsi is not None and rsi < 40:
             score += 1
-            reasons.append("📉 Broke Below Lower Bollinger + Weak RSI")
+            reasons.append("📉 Price broke below Lower Bollinger Band + Weak RSI")
         else:
-            reasons.append("⚠️ Oversold — likely rebound HOLD bias")
+            reasons.append("⚠️ Price dipped below Lower Bollinger Band (oversold HOLD bias)")
 
     if volume is not None and volume > 1.5:
         if (ma50 and current_price < ma50) or (support and current_price < support):
@@ -153,32 +155,34 @@ def check_sell_conditions(
 
     # --- QUICK RECOVERY CHECK ---
     if info.get("last_sell_trigger_price") and current_price > info["last_sell_trigger_price"] * 1.04:
-        info["weak_streak"] = 0  # reset
+        info["weak_streak"] = 0
         return False, "📈 Quick rebound (>4%) — cancelling sell trigger.", current_price
 
-    # --- PROFIT LOCK-IN / TRAILING EXIT ---
+    # --- ADAPTIVE PROFIT LOCK-IN (Trailing Exit) ---
     info["recent_peak"] = max(info["recent_peak"], current_price)
     drop_from_peak = 100 * (1 - current_price / info["recent_peak"])
 
     if pnl_pct >= 20 and (drop_from_peak >= 7 or (momentum < 0 and macd < macd_signal)):
         reason_text = " | ".join(reasons)
-        return True, f"💰 Trailing Stop: +{pnl_pct:.1f}% profit, drop {drop_from_peak:.1f}% from peak, weakness: {reason_text}", current_price
+        return True, f"💰 Trailing Stop: +{pnl_pct:.1f}% profit, drop {drop_from_peak:.1f}% from peak, weakening trend ({reason_text})", current_price
 
-    # --- TIME-BASED REVIEW (6–12 month logic) ---
+    # --- TIME-BASED EXIT REVIEW (6–12 month design) ---
     from datetime import datetime
     if info.get("buy_date"):
         holding_days = (datetime.utcnow() - datetime.strptime(info["buy_date"], "%d.%m.%Y")).days
         if holding_days > 270 and -5 < pnl_pct < 25:
-            return True, f"⌛ 9-month review: flat returns ({pnl_pct:.1f}%) — consider exit.", current_price
+            return True, f"⌛ Time-based review (>9 months): flat returns ({pnl_pct:.1f}%)", current_price
 
     # --- FINAL EXIT CONDITIONS ---
     if debug:
-        print(f"🧮 DEBUG {ticker}: Score={score:.2f}, Reasons={reasons}")
+        print(f"🧮 DEBUG {ticker}: Score={score:.1f}, Reasons={reasons}")
 
+    # Profit-taking safeguard (original)
     if pnl_pct >= 25 and score >= 3:
         reason_text = " | ".join(reasons)
-        return True, f"🎯 Profit +25% with weakening signals (score {score}): {reason_text}", current_price
+        return True, f"🎯 Profit target reached (+25%) with weakening signals (score {score}): {reason_text}", current_price
 
+    # Normal score-based exit
     if score >= 4:
         reason_text = " | ".join(reasons)
         info["last_sell_trigger_price"] = current_price
