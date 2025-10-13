@@ -1,1 +1,42 @@
-{"date": "2025-08-27", "had_alerts": false}
+{
+  "date": "2025-10-13",
+  "had_alerts": false,
+  "tickers": {
+    "NIO": {
+      "weak_streak": 0,
+      "recent_peak": 7.184999942779541
+    },
+    "METC": {
+      "weak_streak": 0,
+      "recent_peak": 52.13750076293945
+    },
+    "M": {
+      "weak_streak": 0,
+      "recent_peak": 17.30500030517578
+    },
+    "NVDA": {
+      "weak_streak": 0,
+      "recent_peak": 188.1199951171875
+    },
+    "PRE": {
+      "weak_streak": 1,
+      "recent_peak": 13.770000457763672
+    },
+    "FIX": {
+      "weak_streak": 0,
+      "recent_peak": 842.75
+    },
+    "EDV": {
+      "weak_streak": 1,
+      "recent_peak": 68.96499633789062
+    },
+    "TTI": {
+      "weak_streak": 0,
+      "recent_peak": 5.945000171661377
+    },
+    "CDE": {
+      "weak_streak": 0,
+      "recent_peak": 21.091299057006836
+    }
+  }
+}
