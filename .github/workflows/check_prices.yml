@@ -11,16 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
-
-      - name: Restore bot state (persistent tracker)
-        id: cache-state
-        uses: actions/cache@v4
+        uses: actions/checkout@v4
         with:
-          path: bot/sell_alerts_tracker.json
-          key: sell-alerts-tracker
-          restore-keys: |
-            sell-alerts-tracker
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0 # fetch full history so commits work
+
+      - name: Set up Git identity
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "bot@github.actions"
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -30,25 +29,32 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run hourly price check
+      - name: Run price check
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           echo "🕐 Running hourly sell signal engine..."
           python bot/decision_engine.py
 
-      - name: Save tracker state
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: bot/sell_alerts_tracker.json
-          key: sell-alerts-tracker
+      - name: Commit and push updated tracker/results
+        run: |
+          echo "📦 Checking for updated tracker or results..."
+          git add bot/sell_alerts_tracker.json bot/live_results.csv || true
+
+          if ! git diff --cached --quiet; then
+            echo "📝 Changes detected, committing..."
+            git commit -m "🤖 Auto-update tracker [$(date -u +'%Y-%m-%d %H:%M:%S UTC')]"
+            git pull --rebase origin main || true
+            git push origin main || true
+          else
+            echo "✅ No changes to commit."
+          fi
 
   test-notify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
