@@ -27,15 +27,23 @@ def get_usd_to_lei():
 
 
 def load_tracker():
+    """Load or initialize the persistent state tracker."""
     if os.path.exists(TRACKER_FILE):
         with open(TRACKER_FILE, "r") as f:
-            return json.load(f)
-    return {"date": datetime.utcnow().strftime("%Y-%m-%d"), "had_alerts": False}
+            try:
+                data = json.load(f)
+                if "tickers" not in data:
+                    data["tickers"] = {}
+                return data
+            except json.JSONDecodeError:
+                pass
+    return {"date": datetime.utcnow().strftime("%Y-%m-%d"), "had_alerts": False, "tickers": {}}
 
 
 def save_tracker(data):
+    """Save persistent tracker state."""
     with open(TRACKER_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(data, f, indent=2)
 
 
 # ---------------------------
@@ -49,15 +57,11 @@ def check_sell_conditions(
     macd=None, macd_signal=None,
     bb_upper=None, bb_lower=None,
     resistance=None, support=None,
-    info=None,  # optional dict to persist state between runs
+    info=None,  # persistent dict per ticker
     debug=True
 ):
-    """
-    Enhanced sell condition logic with persistence, recovery, and adaptive profit logic,
-    while keeping your original scoring and debug output format.
-    """
+    """Enhanced sell condition logic with persistence and adaptive trailing logic."""
 
-    # Ensure info dict exists
     if info is None:
         info = {}
 
@@ -67,7 +71,7 @@ def check_sell_conditions(
     if "recent_peak" not in info:
         info["recent_peak"] = current_price
 
-    # --- HARD STOP-LOSS (Capital protection) ---
+    # --- HARD STOP-LOSS ---
     if pnl_pct <= -25:
         if rsi and rsi < 35:
             return False, f"📈 Oversold (RSI={rsi:.1f}), deep loss but HOLD.", current_price
@@ -77,56 +81,48 @@ def check_sell_conditions(
             return False, f"📈 Market bullish, avoid panic selling at deep loss.", current_price
         return True, f"🛑 Smart Stop Loss Triggered (-25%).", current_price
 
-    # --- CONSECUTIVE WEAKNESS TRACKING ---
-    # increment when RSI/momentum weak or price below MA50
+    # --- CONSECUTIVE WEAKNESS LOGIC ---
     if (momentum is not None and momentum < 0) or (rsi is not None and rsi < 45) or (ma50 and current_price < ma50):
         info["weak_streak"] += 1
     else:
         info["weak_streak"] = 0
 
     if info["weak_streak"] < 3:
-        if debug:
-            print(f"⏳ {ticker}: Weak {info['weak_streak']}/3 — waiting confirmation")
+        print(f"⏳ {ticker}: Weak {info['weak_streak']}/3 — waiting confirmation")
         return False, f"🕐 Weakness streak {info['weak_streak']}/3 — waiting confirmation", current_price
 
-    # --- SCORING LOGIC (unchanged core structure) ---
+    # --- SCORING SYSTEM (original core logic) ---
     score = 0
     reasons = []
 
-    # Strong momentum breakdown
     if momentum is not None and momentum < -0.5:
         score += 2
         reasons.append("📉 Strong Negative Momentum (< -0.5)")
 
-    # MACD crossover = mid-term reversal
     if macd is not None and macd_signal is not None and macd < macd_signal:
         score += 1.5
         reasons.append("📉 MACD Bearish Crossover (mid-term trend)")
 
-    # Overbought RSI (less mid-term)
     if rsi is not None and rsi > 70:
         score += 0.5
         reasons.append("📉 RSI Overbought (>70)")
 
-    # MA breaks
     if ma50 is not None and current_price < ma50:
         score += 1
         reasons.append("📉 Price below MA50")
+
     if ma200 is not None and current_price < ma200:
         score += 2
         reasons.append("📉 Price below MA200 (long-term support lost)")
 
-    # ATR + loss risk
     if atr is not None and atr > 7 and pnl_pct < -10:
         score += 0.5
         reasons.append("⚡ High ATR + Loss")
 
-    # Bollinger stretch
     if bb_upper is not None and current_price > bb_upper:
         score += 0.5
         reasons.append("📉 Price above Upper Bollinger Band (stretch)")
 
-    # Support / Resistance & Volume checks
     if support is not None and current_price < support:
         if (rsi is not None and rsi < 45) or (momentum is not None and momentum < 0):
             score += 2
@@ -158,31 +154,26 @@ def check_sell_conditions(
         info["weak_streak"] = 0
         return False, "📈 Quick rebound (>4%) — cancelling sell trigger.", current_price
 
-    # --- ADAPTIVE PROFIT LOCK-IN (Trailing Exit) ---
+    # --- ADAPTIVE PROFIT LOCK-IN ---
     info["recent_peak"] = max(info["recent_peak"], current_price)
     drop_from_peak = 100 * (1 - current_price / info["recent_peak"])
-
     if pnl_pct >= 20 and (drop_from_peak >= 7 or (momentum < 0 and macd < macd_signal)):
         reason_text = " | ".join(reasons)
-        return True, f"💰 Trailing Stop: +{pnl_pct:.1f}% profit, drop {drop_from_peak:.1f}% from peak, weakening trend ({reason_text})", current_price
+        return True, f"💰 Trailing Stop: +{pnl_pct:.1f}%, drop {drop_from_peak:.1f}% from peak, weakening ({reason_text})", current_price
 
-    # --- TIME-BASED EXIT REVIEW (6–12 month design) ---
-    from datetime import datetime
+    # --- TIME-BASED EXIT (6–12 month horizon) ---
     if info.get("buy_date"):
         holding_days = (datetime.utcnow() - datetime.strptime(info["buy_date"], "%d.%m.%Y")).days
         if holding_days > 270 and -5 < pnl_pct < 25:
             return True, f"⌛ Time-based review (>9 months): flat returns ({pnl_pct:.1f}%)", current_price
 
     # --- FINAL EXIT CONDITIONS ---
-    if debug:
-        print(f"🧮 DEBUG {ticker}: Score={score:.1f}, Reasons={reasons}")
+    print(f"🧮 DEBUG {ticker}: Score={score:.1f}, Reasons={reasons}")
 
-    # Profit-taking safeguard (original)
     if pnl_pct >= 25 and score >= 3:
         reason_text = " | ".join(reasons)
-        return True, f"🎯 Profit target reached (+25%) with weakening signals (score {score}): {reason_text}", current_price
+        return True, f"🎯 Profit target +25% with weakening signals (score {score}): {reason_text}", current_price
 
-    # Normal score-based exit
     if score >= 4:
         reason_text = " | ".join(reasons)
         info["last_sell_trigger_price"] = current_price
@@ -191,6 +182,9 @@ def check_sell_conditions(
     return False, "🟢 HOLD — no sell signal", current_price
 
 
+# ---------------------------
+# Decision Engine Runner
+# ---------------------------
 def run_decision_engine(test_mode=False, end_of_day=False):
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
     tracked = load_data(file_to_load)
@@ -204,16 +198,15 @@ def run_decision_engine(test_mode=False, end_of_day=False):
     today = datetime.utcnow().strftime("%Y-%m-%d")
 
     if tracker["date"] != today:
-        tracker = {"date": today, "had_alerts": False}
+        tracker = {"date": today, "had_alerts": False, "tickers": tracker.get("tickers", {})}
 
     total = len(stocks)
     correct = 0
     sell_alerts = []
+    usd_to_lei = get_usd_to_lei()
 
     csv_file = "bot/test_results.csv" if test_mode else "bot/live_results.csv"
     os.makedirs(os.path.dirname(csv_file), exist_ok=True)
-
-    usd_to_lei = get_usd_to_lei()
 
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -226,8 +219,8 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         ])
 
         for ticker, info in stocks.items():
-            avg_price = float(info.get("avg_price", 0))   # USD
-            invested_lei = float(info.get("invested_lei", 0))  # LEI
+            avg_price = float(info.get("avg_price", 0))
+            invested_lei = float(info.get("invested_lei", 0))
             shares = float(info.get("shares", 0))
 
             if avg_price <= 0 or invested_lei <= 0 or shares <= 0:
@@ -239,19 +232,18 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 print(f"⚠️ Skipping {ticker}, no indicators fetched")
                 continue
 
-            current_price = indicators["current_price"]  # USD
+            current_price = indicators["current_price"]
             current_value_usd = current_price * shares
-            current_value_lei = current_value_usd * usd_to_lei  # FX-adjusted
-
+            current_value_lei = current_value_usd * usd_to_lei
             pnl_lei = current_value_lei - invested_lei
             pnl_pct = (pnl_lei / invested_lei) * 100 if invested_lei > 0 else 0
             info.update(indicators)
 
             expected = info.get("expected", "HOLD")
-
+            info_state = tracker["tickers"].get(ticker, {})
             decision, reason, _ = check_sell_conditions(
                 ticker, avg_price, current_price,
-                pnl_pct=pnl_pct,  # ✅ Pass FX-adjusted PnL
+                pnl_pct=pnl_pct,
                 volume=info.get("volume"),
                 momentum=info.get("momentum"),
                 rsi=info.get("rsi"),
@@ -265,10 +257,11 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 bb_lower=info.get("bb_lower"),
                 resistance=info.get("resistance"),
                 support=info.get("support"),
-                debug=test_mode
+                info=info_state,
+                debug=True
             )
 
-
+            tracker["tickers"][ticker] = info_state
             decision_text = "SELL" if decision else "HOLD"
 
             writer.writerow([
@@ -297,6 +290,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 )
                 sell_alerts.append(alert_line)
 
+    # --- Discord + Tracker Updates ---
     if sell_alerts and not test_mode and not end_of_day:
         full_message = "🚨 **SELL ALERTS TRIGGERED** 🚨\n\n" + "\n---\n".join(sell_alerts)
         send_discord_alert(message=full_message)

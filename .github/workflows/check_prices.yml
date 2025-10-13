@@ -13,6 +13,15 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
+      - name: Restore bot state (persistent tracker)
+        id: cache-state
+        uses: actions/cache@v4
+        with:
+          path: bot/sell_alerts_tracker.json
+          key: sell-alerts-tracker
+          restore-keys: |
+            sell-alerts-tracker
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -21,10 +30,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run price check
+      - name: Run hourly price check
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python bot/decision_engine.py
+        run: |
+          echo "🕐 Running hourly sell signal engine..."
+          python bot/decision_engine.py
+
+      - name: Save tracker state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: bot/sell_alerts_tracker.json
+          key: sell-alerts-tracker
 
   test-notify:
     runs-on: ubuntu-latest
