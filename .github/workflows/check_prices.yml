@@ -1,5 +1,8 @@
 name: Daily GPT-5 Stock Sell Alert
 
+permissions:
+  contents: write
+
 on:
   schedule:
     - cron: '0 * * * *' # every hour
