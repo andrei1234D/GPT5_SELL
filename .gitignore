@@ -1,4 +1,3 @@
 bot/test_data.csv
 bot/test_results.csv
 .github\workflows\test-sell-signals.yml
-bot\sell_alerts_tracker.json
