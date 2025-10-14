@@ -37,7 +37,7 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           echo "🕐 Running hourly sell signal engine..."
-          python bot/decision_engine.py
+          python bot/decision_engine.py || true
 
       - name: Commit and push updated tracker/results
         run: |
