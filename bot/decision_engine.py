@@ -150,7 +150,11 @@ def check_sell_conditions(
     # --- PROFIT LOCK-IN ---
     info["recent_peak"] = max(info["recent_peak"], current_price)
     drop_from_peak = 100 * (1 - current_price / info["recent_peak"])
-    if pnl_pct >= 20 and (drop_from_peak >= 7 or (momentum < 0 and macd < macd_signal)):
+    if pnl_pct >= 20 and (
+    (drop_from_peak >= 7 and score >= 3)
+    or (drop_from_peak >= 10 and score >= 2)
+):
+
         return True, f"💰 Trailing Stop +{pnl_pct:.1f}% drop {drop_from_peak:.1f}%", current_price, score
 
     # --- FINAL EXIT CONDITIONS ---
