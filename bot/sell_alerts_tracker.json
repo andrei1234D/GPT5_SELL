@@ -3,11 +3,11 @@
   "had_alerts": true,
   "tickers": {
     "NIO": {
-      "weak_streak": 4,
+      "weak_streak": 3,
       "recent_peak": 7.184999942779541
     },
     "METC": {
-      "weak_streak": 6,
+      "weak_streak": 7,
       "recent_peak": 52.13750076293945,
       "last_alert_time": "2025-10-15T20:13:46Z",
       "last_score": 3.5
@@ -29,7 +29,7 @@
       "recent_peak": 842.75
     },
     "EDV": {
-      "weak_streak": 3,
+      "weak_streak": 2,
       "recent_peak": 69.47010040283203
     },
     "TTI": {
@@ -41,7 +41,7 @@
       "recent_peak": 22.291000366210938
     },
     "METCB": {
-      "weak_streak": 1,
+      "weak_streak": 0,
       "recent_peak": 18.850000381469727
     }
   }
