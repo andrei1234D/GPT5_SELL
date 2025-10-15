@@ -3,11 +3,11 @@
   "had_alerts": true,
   "tickers": {
     "NIO": {
-      "weak_streak": 3,
+      "weak_streak": 4,
       "recent_peak": 7.184999942779541
     },
     "METC": {
-      "weak_streak": 3,
+      "weak_streak": 4,
       "recent_peak": 52.13750076293945,
       "last_alert_time": "2025-10-15T17:17:55Z",
       "last_score": 2.5
@@ -17,7 +17,7 @@
       "recent_peak": 17.30500030517578
     },
     "NVDA": {
-      "weak_streak": 1,
+      "weak_streak": 2,
       "recent_peak": 188.1199951171875
     },
     "PRE": {
@@ -25,12 +25,12 @@
       "recent_peak": 13.770000457763672
     },
     "FIX": {
-      "weak_streak": 1,
+      "weak_streak": 0,
       "recent_peak": 842.75
     },
     "EDV": {
-      "weak_streak": 2,
-      "recent_peak": 69.16999816894531
+      "weak_streak": 3,
+      "recent_peak": 69.37999725341797
     },
     "TTI": {
       "weak_streak": 0,
@@ -39,6 +39,10 @@
     "CDE": {
       "weak_streak": 0,
       "recent_peak": 21.091299057006836
+    },
+    "METCB": {
+      "weak_streak": 1,
+      "recent_peak": 18.850000381469727
     }
   }
 }
