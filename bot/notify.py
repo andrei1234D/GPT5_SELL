@@ -25,20 +25,32 @@ def send_discord_alert(
         print("❌ ERROR: DISCORD_WEBHOOK_URL is not set. Add it as a GitHub Secret.")
         return False
 
-    # --- CASE 1: Raw bundled message (simple text) ---
+    # --- CASE 1: Raw text message ---
     if message:
         payload = {"content": message}
 
-    # --- CASE 2: Multiple tickers bundled into one embed ---
+    # --- CASE 2: Multiple tickers in one embed ---
     elif bundled_alerts:
         fields = []
         for alert in bundled_alerts:
-            buy_price = alert.get("buy_price", 0)
-            current_price = alert.get("current_price", 0)
-            pnl_pct = ((current_price - buy_price) / buy_price) * 100 if buy_price else 0
+            buy_price = alert.get("buy_price")
+            current_price = alert.get("current_price")
+
+            # ✅ Safe profit/loss calculation
+            if buy_price and current_price:
+                pnl_pct = ((current_price - buy_price) / buy_price) * 100
+                pnl_text = f"{pnl_pct:+.2f}%"
+            else:
+                pnl_text = "N/A"
+
             fields.append({
-                "name": f"{alert['ticker']} ({pnl_pct:.2f}%)",
-                "value": f"Buy: ${buy_price:.2f}\nCurrent: ${current_price:.2f}\nReason: {alert['reason']}",
+                "name": f"{alert.get('ticker', '?')} ({pnl_text})",
+                "value": (
+                    f"Buy: ${buy_price:.2f}\nCurrent: ${current_price:.2f}\n"
+                    f"Reason: {alert.get('reason', '—')}"
+                    if (buy_price and current_price)
+                    else f"Reason: {alert.get('reason', '—')}"
+                ),
                 "inline": False
             })
 
@@ -56,20 +68,26 @@ def send_discord_alert(
             ]
         }
 
-    # --- CASE 3: Default single-stock structured alert ---
+    # --- CASE 3: Default single-stock alert ---
     else:
-        profit_loss_pct = ((current_price - buy_price) / buy_price) * 100
+        # ✅ Safe check for None before computing PnL
+        if buy_price and current_price:
+            profit_loss_pct = ((current_price - buy_price) / buy_price) * 100
+            pnl_text = f"{profit_loss_pct:+.2f}%"
+        else:
+            pnl_text = "N/A"
+
         payload = {
             "embeds": [
                 {
                     "title": f"🚨 SELL SIGNAL for {ticker}",
                     "color": 15158332,  # Red
                     "fields": [
-                        {"name": "Ticker", "value": ticker, "inline": True},
-                        {"name": "Buy Price", "value": f"${buy_price:.2f}", "inline": True},
-                        {"name": "Current Price", "value": f"${current_price:.2f}", "inline": True},
-                        {"name": "PnL %", "value": f"{profit_loss_pct:.2f}%", "inline": True},
-                        {"name": "Reason", "value": reason, "inline": False}
+                        {"name": "Ticker", "value": ticker or "?", "inline": True},
+                        {"name": "Buy Price", "value": f"${buy_price or 0:.2f}", "inline": True},
+                        {"name": "Current Price", "value": f"${current_price or 0:.2f}", "inline": True},
+                        {"name": "PnL %", "value": pnl_text, "inline": True},
+                        {"name": "Reason", "value": reason or "—", "inline": False}
                     ],
                     "footer": {
                         "text": f"Bot check at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
@@ -78,22 +96,23 @@ def send_discord_alert(
             ]
         }
 
+    # --- TEST MODE ---
     if test_mode:
         print("🧪 TEST MODE ALERT (no Discord sent):")
         print(json.dumps(payload, indent=2))
         return True
 
+    # --- Send to Discord ---
     try:
         response = requests.post(webhook_url, json=payload)
 
         if debug:
             print("📤 Sending Discord Alert...")
-            print(f"🔗 Webhook URL: {webhook_url[:50]}... (truncated for security)")
-            print(f"📦 Payload: {json.dumps(payload, indent=2)}")
             print(f"📡 Response Code: {response.status_code}")
-            print(f"📡 Response Body: {response.text}")
+            if response.status_code not in (200, 204):
+                print(f"📡 Response Body: {response.text}")
 
-        if response.status_code in [200, 204]:
+        if response.status_code in (200, 204):
             print("✅ Successfully sent alert to Discord")
             return True
         else:
@@ -105,8 +124,8 @@ def send_discord_alert(
         return False
 
 
+# --- Local test run ---
 if __name__ == "__main__":
-    # 🔎 Test bundled alerts
     send_discord_alert(
         bundled_alerts=[
             {"ticker": "AAPL", "buy_price": 172.50, "current_price": 195.20, "reason": "🎯 Take Profit (+13%)"},
