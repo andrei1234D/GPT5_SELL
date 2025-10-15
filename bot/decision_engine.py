@@ -238,19 +238,38 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 info_state["last_score"] = score
                 sell_alerts.append(f"**{ticker}** — {reason} ({pnl_pct:.2f}%)")
 
-    # --- Discord Output (every 3h max) ---
+       # --- Discord Output Logic ---
+    now_utc = datetime.utcnow()
+
+    # 🚨 Send SELL alerts immediately when they happen
     if sell_alerts:
         msg = "🚨 **SELL ALERTS TRIGGERED** 🚨\n\n" + "\n".join(sell_alerts)
         if weak_near:
             msg += "\n\n📉 **Approaching Weak Signals:**\n" + "\n".join(weak_near)
-        if not test_mode and not end_of_day:
+        if not test_mode:
             send_discord_alert(msg)
             tracker["had_alerts"] = True
-    elif weak_near and not test_mode and not end_of_day:
-        # Optional — comment out if you don't want "Weak only" messages
-        msg = "⚠️ **Monitoring Update** — No sells yet, but:\n" + "\n".join(weak_near)
-        send_discord_alert(msg)
 
+    # 🕐 End-of-day summary
+    elif end_of_day and not test_mode:
+        weak_list = []
+        for ticker, state in tracker["tickers"].items():
+            if state.get("weak_streak", 0) > 0:
+                weak_list.append(f"⚠️ {ticker}: Weak {state['weak_streak']}/3")
+
+        if weak_list:
+            summary = (
+                "📊 **Daily Monitoring Update**\n\n"
+                + "\n".join(weak_list)
+                + f"\n\n🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+            )
+            send_discord_alert(summary)
+        elif not tracker["had_alerts"]:
+            send_discord_alert(
+                f"😎 No sell signals today. Business doing good, boss!\n🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+            )
+
+    # --- Save and commit tracker ---
     save_tracker(tracker)
     if not test_mode:
         git_commit_tracker()
@@ -261,5 +280,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", action="store_true")
+    parser.add_argument("--endofday", action="store_true")
     args = parser.parse_args()
-    run_decision_engine(test_mode=args.test)
+
+    run_decision_engine(test_mode=args.test, end_of_day=args.endofday)
