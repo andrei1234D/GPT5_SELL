@@ -77,7 +77,9 @@ def check_sell_conditions(
     info=None,
     debug=True
 ):
-    """Enhanced sell logic with persistence and adaptive trailing."""
+    """Smart sell logic using score-based weakness, profit protection, and confirmation streaks."""
+    from datetime import datetime
+
     if info is None:
         info = {}
 
@@ -85,86 +87,102 @@ def check_sell_conditions(
     info.setdefault("recent_peak", current_price)
 
     # --- HARD STOP LOSS ---
-    if pnl_pct <= -25:
+    if pnl_pct is not None and pnl_pct <= -25:
         if rsi and rsi < 35:
             return False, f"📈 Oversold (RSI={rsi:.1f}), HOLD.", current_price, 0
         if momentum and momentum >= 0:
             return False, f"📈 Momentum stabilizing → HOLD.", current_price, 0
-        if market_trend == "BULLISH":
-            return False, f"📈 Bullish market, avoid panic sell.", current_price, 0
-        return True, f"🛑 Stop Loss Triggered (-25%)", current_price, 0
+        return True, "🛑 Hard Stop Loss Triggered (-25%)", current_price, 0
 
-    # --- WEAKNESS TRACKER ---
-    if (momentum is not None and momentum < 0) or (rsi is not None and rsi < 45) or (ma50 and current_price < ma50):
+    # --- SCORE CALCULATION (0 → 10 scale) ---
+    score, reasons = 0, []
+
+    if momentum is not None:
+        if momentum < -0.8:
+            score += 2; reasons.append("📉 Momentum Collapse (< -0.8)")
+        elif momentum < -0.3:
+            score += 1; reasons.append("📉 Weak Momentum (< -0.3)")
+
+    if rsi is not None:
+        if rsi < 35:
+            score += 1.5; reasons.append("📉 RSI Oversold (<35)")
+        elif rsi < 45:
+            score += 1; reasons.append("📉 RSI Weak (<45)")
+        elif rsi > 70:
+            score += 0.5; reasons.append("📈 RSI Overbought (>70)")
+
+    if macd is not None and macd_signal is not None and macd < macd_signal:
+        score += 1.5; reasons.append("📉 MACD Bearish Crossover")
+
+    if ma50 and current_price < ma50:
+        score += 1; reasons.append("📉 Price below MA50")
+
+    if ma200 and current_price < ma200:
+        score += 2; reasons.append("📉 Price below MA200 (Major Breakdown)")
+
+    if support and current_price < support:
+        score += 2; reasons.append("📉 Support Broken")
+
+    if volume and volume > 1.3:
+        score += 1; reasons.append("📉 High Volume Breakdown (>1.3x avg)")
+
+    if atr and pnl_pct is not None and atr > 7 and pnl_pct < 0:
+        score += 0.5; reasons.append("⚡ High Volatility + Loss")
+
+    # --- UPDATE WEAK STREAK ---
+    if score >= 3.5:
         info["weak_streak"] += 1
     else:
-        info["weak_streak"] = 0
+        info["weak_streak"] = max(0, info["weak_streak"] - 1)
 
-    # --- SCORING ---
-    score, reasons = 0, []
-    if momentum is not None and momentum < -0.5:
-        score += 2
-        reasons.append("📉 Strong Negative Momentum (< -0.5)")
-    if macd is not None and macd_signal is not None and macd < macd_signal:
-        score += 1.5
-        reasons.append("📉 MACD Bearish Crossover")
-    if rsi and rsi > 70:
-        score += 0.5
-        reasons.append("📉 RSI Overbought (>70)")
-    if ma50 and current_price < ma50:
-        score += 1
-        reasons.append("📉 Below MA50")
-    if ma200 and current_price < ma200:
-        score += 2
-        reasons.append("📉 Below MA200 (major shift)")
-    if atr and atr > 7 and pnl_pct < -10:
-        score += 0.5
-        reasons.append("⚡ High ATR + Loss")
-    if bb_upper and current_price > bb_upper:
-        score += 0.5
-        reasons.append("📉 Above Upper Bollinger Band")
-    if support and current_price < support:
-        if (rsi and rsi < 45) or (momentum and momentum < 0):
-            score += 2
-            reasons.append("📉 Broke Support with Weak RSI/Momentum")
-        else:
-            reasons.append("⚠️ Touched Support — no confirmation")
-    if volume and volume > 1.5:
-        if (ma50 and current_price < ma50) or (support and current_price < support):
-            score += 1.5
-            reasons.append("📉 Breakdown confirmed by High Volume")
+    # --- CALCULATE DROP FROM PEAK ---
+    info["recent_peak"] = max(info["recent_peak"], current_price)
+    drop_from_peak = 100 * (1 - current_price / info["recent_peak"])
+
+    # --- SCORE LEVEL TAG ---
+    if score < 2.5:
+        level = "🟢 Stable"
+    elif score < 4.5:
+        level = "🟡 Watch"
+    elif score < 6.5:
+        level = "🟠 Weak"
+    else:
+        level = "🔴 Critical"
 
     # --- DEBUG OUTPUT ---
     if debug:
-        print(f"⏳ {ticker}: Weak {info['weak_streak']}/3 — waiting confirmation")
-        print(f"🧮 DEBUG {ticker}: Score={score:.1f}, Reasons={reasons}")
+        print(f"⏳ {ticker}: Weak {info['weak_streak']}/3 — Score={score:.1f} ({level})")
+        print(f"🧮 DEBUG {ticker}: Reasons={reasons}")
 
-    if info["weak_streak"] < 3:
-        return False, f"🕐 Weakness streak {info['weak_streak']}/3 — waiting confirmation", current_price, score
+    # --- SELL CONDITIONS ---
 
-    # --- QUICK REBOUND CANCEL ---
-    if info.get("last_sell_trigger_price") and current_price > info["last_sell_trigger_price"] * 1.04:
-        info["weak_streak"] = 0
-        return False, "📈 Quick rebound (>4%) — cancelling.", current_price, score
+    # 1️⃣ Critical Breakdown
+    if score >= 6.5:
+        return True, f"⚡ Breakdown confirmed (Score {score:.1f}, {level})", current_price, score
 
-    # --- PROFIT LOCK-IN ---
-    info["recent_peak"] = max(info["recent_peak"], current_price)
-    drop_from_peak = 100 * (1 - current_price / info["recent_peak"])
-    if pnl_pct >= 20 and (
-    (drop_from_peak >= 7 and score >= 3)
-    or (drop_from_peak >= 10 and score >= 2)
-):
+    # 2️⃣ Confirmed Sustained Weakness
+    if score >= 4.5 and info["weak_streak"] >= 3:
+        return True, f"🚨 Sustained weakness ({info['weak_streak']}x, Score {score:.1f})", current_price, score
 
-        return True, f"💰 Trailing Stop +{pnl_pct:.1f}% drop {drop_from_peak:.1f}%", current_price, score
+    # 3️⃣ Profit Protection (requires tech confirmation)
+    if pnl_pct is not None and pnl_pct >= 20 and drop_from_peak >= 7 and score >= 3.5 and info["weak_streak"] >= 2:
+        return True, f"💰 Profit protection (+{pnl_pct:.1f}%, drop {drop_from_peak:.1f}%, Score {score:.1f})", current_price, score
 
-    # --- FINAL EXIT CONDITIONS ---
-    if pnl_pct >= 25 and score >= 3:
-        return True, f"🎯 Profit +25%, weakening (score {score})", current_price, score
-    if score >= 4:
-        info["last_sell_trigger_price"] = current_price
-        return True, f"🚨 Score {score} (≥4) triggered SELL", current_price, score
+    # 4️⃣ Aggressive Reversal (requires confirmation)
+    if pnl_pct is not None and pnl_pct >= 10 and score >= 5.0 and info["weak_streak"] >= 2:
+        return True, f"🏁 Aggressive reversal (+{pnl_pct:.1f}%, Score {score:.1f})", current_price, score
 
-    return False, "🟢 HOLD — no sell signal", current_price, score
+    # 5️⃣ Long Hold Timeout
+    if info.get("buy_date"):
+        try:
+            holding_days = (datetime.utcnow() - datetime.strptime(info["buy_date"], "%d.%m.%Y")).days
+            if holding_days > 270 and -5 < pnl_pct < 25:
+                return True, f"⌛ Time-based review (>9 months, {holding_days} days)", current_price, score
+        except Exception:
+            pass
+
+    # Default HOLD
+    return False, f"🟢 HOLD — Score {score:.1f}, Weak {info['weak_streak']}/3 ({level})", current_price, score
 
 
 # ---------------------------
