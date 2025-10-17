@@ -21,7 +21,7 @@
       "recent_peak": 188.1199951171875
     },
     "PRE": {
-      "weak_streak": 1,
+      "weak_streak": 0,
       "recent_peak": 16.1200008392334
     },
     "FIX": {
@@ -41,7 +41,7 @@
       "recent_peak": 23.324499130249023
     },
     "METCB": {
-      "weak_streak": 1,
+      "weak_streak": 2,
       "recent_peak": 18.850000381469727
     }
   }
