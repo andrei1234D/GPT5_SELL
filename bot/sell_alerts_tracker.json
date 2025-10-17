@@ -41,8 +41,10 @@
       "recent_peak": 23.324499130249023
     },
     "METCB": {
-      "weak_streak": 2,
-      "recent_peak": 18.850000381469727
+      "weak_streak": 3,
+      "recent_peak": 18.850000381469727,
+      "last_alert_time": "2025-10-17T18:26:18Z",
+      "last_score": 4.5
     }
   }
 }
