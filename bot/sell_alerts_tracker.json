@@ -21,7 +21,7 @@
       "recent_peak": 188.1199951171875
     },
     "PRE": {
-      "weak_streak": 59,
+      "weak_streak": 58,
       "recent_peak": 16.639999389648438
     },
     "FIX": {
@@ -30,7 +30,7 @@
     },
     "EDV": {
       "weak_streak": 0,
-      "recent_peak": 70.45999908447266
+      "recent_peak": 70.51499938964844
     },
     "TTI": {
       "weak_streak": 0,
@@ -41,7 +41,7 @@
       "recent_peak": 23.324499130249023
     },
     "METCB": {
-      "weak_streak": 62,
+      "weak_streak": 61,
       "recent_peak": 18.850000381469727,
       "last_alert_time": "2025-10-20T12:41:58Z",
       "last_score": 4.5
