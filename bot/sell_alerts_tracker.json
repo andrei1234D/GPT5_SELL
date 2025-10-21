@@ -14,16 +14,16 @@
     },
     "M": {
       "weak_streak": 0,
-      "recent_peak": 18.405000686645508
+      "recent_peak": 18.415800094604492
     },
     "NVDA": {
-      "weak_streak": 3,
+      "weak_streak": 4,
       "recent_peak": 188.1199951171875,
       "last_alert_time": "2025-10-21T18:29:25Z",
       "last_score": 4.5
     },
     "PRE": {
-      "weak_streak": 37,
+      "weak_streak": 36,
       "recent_peak": 16.729999542236328
     },
     "FIX": {
@@ -50,7 +50,7 @@
     },
     "IDCC": {
       "weak_streak": 0,
-      "recent_peak": 370.625
+      "recent_peak": 372.1499938964844
     }
   }
 }
