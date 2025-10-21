@@ -23,13 +23,7 @@
       "shares": 50.115980619593714,
       "invested_lei": 1227.74,
       "fx_rate_buy": 4.398200035095215
-    },
-    "METCB": {
-      "avg_price": 20.1,
-      "shares": 13.61764539600148,
-      "invested_lei": 1196.27,
-      "fx_rate_buy": 4.370500087738037
     }
   },
-  "realized_pnl": 2757.591406827927
+  "realized_pnl": 2545.075821014758
 }
