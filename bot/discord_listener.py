@@ -283,7 +283,7 @@ async def sell(ctx, ticker: str, price: float, amount: str):
 
 @bot.command()
 async def list(ctx):
-    """Show all currently tracked stocks with Weak Streak + Score summary."""
+    """Show all currently tracked stocks with Weak Streak, Score, and Profit summary."""
     pull_from_github(DATA_FILE)
     data = load_data()
     stocks = data.get("stocks", {})
@@ -292,7 +292,7 @@ async def list(ctx):
         await ctx.send("📭 No stocks currently tracked.")
         return
 
-    # Load tracker state to pull Weak Streak + Score
+    # Load tracker for Weak + Score data
     tracker_file = "bot/sell_alerts_tracker.json"
     if os.path.exists(tracker_file):
         with open(tracker_file, "r") as f:
@@ -305,7 +305,25 @@ async def list(ctx):
 
     msg_lines = ["**📊 Currently Tracked Stocks:**\n"]
 
-    for ticker in stocks:
+    stock_list = []
+    for ticker, info in stocks.items():
+        avg_price = float(info.get("avg_price", 0))
+        shares = float(info.get("shares", 0))
+        invested = float(info.get("invested_lei", 0))
+        fx_rate = float(info.get("fx_rate_buy", 4.6))  # fallback
+
+        # Try to fetch current USD price
+        try:
+            px = yf.Ticker(ticker).history(period="1d")
+            current_price = float(px["Close"].iloc[-1]) if not px.empty else avg_price
+        except Exception:
+            current_price = avg_price
+
+        # Calculate current value and PnL in LEI
+        current_value_lei = current_price * shares * fx_rate
+        pnl_lei = current_value_lei - invested
+
+        # Tracker data
         state = tracker["tickers"].get(ticker, {})
         weak_streak = state.get("weak_streak", 0)
         score = state.get("last_score", 0)
@@ -320,21 +338,26 @@ async def list(ctx):
         else:
             risk_emoji = "🔴 Critical"
 
-        # Try to fetch current price (optional)
-        try:
-            px = yf.Ticker(ticker).history(period="1d")
-            current_price = float(px["Close"].iloc[-1]) if not px.empty else None
-        except Exception:
-            current_price = None
+        stock_list.append({
+            "ticker": ticker,
+            "weak": weak_streak,
+            "score": score,
+            "emoji": risk_emoji,
+            "pnl_lei": pnl_lei
+        })
 
-        if current_price:
-            msg_lines.append(
-                f"{ticker}: {risk_emoji} | Weak {weak_streak}/3 | Score {score:.1f} | Price: {current_price:.2f} USD"
-            )
-        else:
-            msg_lines.append(
-                f"{ticker}: {risk_emoji} | Weak {weak_streak}/3 | Score {score:.1f}"
-            )
+    # Sort by score (descending, most critical first)
+    stock_list.sort(key=lambda x: x["score"], reverse=True)
+
+    for s in stock_list:
+        pnl_sign = "+" if s["pnl_lei"] >= 0 else ""
+        msg_lines.append(
+            f"{s['ticker']}: {s['emoji']} | Weak {s['weak']}/3 | Score {s['score']:.1f} | PROFIT: {pnl_sign}{s['pnl_lei']:.2f} LEI"
+        )
+
+    # 💰 Add total realized PnL summary
+    realized_pnl = data.get("realized_pnl", 0.0)
+    msg_lines.append(f"\n💰 **Cumulative Realized PnL:** {realized_pnl:+.2f} LEI")
 
     msg = "\n".join(msg_lines)
     await ctx.send(msg)
