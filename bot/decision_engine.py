@@ -129,11 +129,44 @@ def check_sell_conditions(
     if atr and pnl_pct is not None and atr > 7 and pnl_pct < 0:
         score += 0.5; reasons.append("⚡ High Volatility + Loss")
 
-    # --- UPDATE WEAK STREAK ---
-    if score >= 3.5:
-        info["weak_streak"] += 1
+
+        # --- MARKET-ACTIVITY CHECK (skip overnight increments) ---
+    last_price = info.get("last_checked_price")
+    last_time = info.get("last_checked_time")
+
+    price_change = None
+    if last_price:
+        try:
+            price_change = abs((current_price - last_price) / last_price) * 100
+        except ZeroDivisionError:
+            price_change = None
+
+    # Determine if we should skip weak streak update
+    now_utc = datetime.utcnow()
+    market_hour = 13 <= now_utc.hour <= 21  # roughly 9:00–17:00 ET (adjust if needed)
+
+    if (price_change is not None and price_change < 0.3) or not market_hour:
+        skip_weak_update = True
     else:
-        info["weak_streak"] = max(0, info["weak_streak"] - 1)
+        skip_weak_update = False
+
+    # Update tracking fields
+    info["last_checked_price"] = current_price
+    info["last_checked_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+
+        # --- UPDATE WEAK STREAK ---
+    if not skip_weak_update:
+        if score >= 3.5:
+            info["weak_streak"] += 1
+        else:
+            info["weak_streak"] = max(0, info["weak_streak"] - 1)
+    else:
+        # Skip incrementing outside trading hours or without price movement
+        if debug:
+            print(f"⏸️ Skipping weak streak update for {ticker} (market closed or no price change)")
+
 
     # --- CALCULATE DROP FROM PEAK ---
     info["recent_peak"] = max(info["recent_peak"], current_price)
@@ -197,33 +230,28 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
     stocks = tracked["stocks"]
     tracker = load_tracker()
-    usd_to_lei = get_usd_to_lei()
+
     sell_alerts = []
     weak_near = []
 
     for ticker, info in stocks.items():
-        avg_price = float(info.get("avg_price", 0))
-        invested_lei = float(info.get("invested_lei", 0))
-        shares = float(info.get("shares", 0))
-        if avg_price <= 0 or invested_lei <= 0 or shares <= 0:
-            continue
-
         indicators = compute_indicators(ticker)
         if not indicators:
             continue
 
         current_price = indicators["current_price"]
-        pnl_lei = current_price * shares * usd_to_lei - invested_lei
-        pnl_pct = (pnl_lei / invested_lei) * 100
         info_state = tracker["tickers"].get(ticker, {})
 
+        pnl_pct = 0  # we no longer use profit-based logic directly
+
         decision, reason, _, score = check_sell_conditions(
-            ticker, avg_price, current_price,
+            ticker,
+            buy_price=0,
+            current_price=current_price,
             pnl_pct=pnl_pct,
             volume=indicators.get("volume"),
             momentum=indicators.get("momentum"),
             rsi=indicators.get("rsi"),
-            market_trend=indicators.get("market_trend"),
             ma50=indicators.get("ma50"),
             ma200=indicators.get("ma200"),
             atr=indicators.get("atr"),
@@ -238,17 +266,29 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         )
 
         tracker["tickers"][ticker] = info_state
+        weak_streak = info_state.get("weak_streak", 0)
 
-        # Collect “Weak” ones
-        if info_state.get("weak_streak", 0) in [1, 2]:
-            weak_near.append(f"⚠️ {ticker}: Weak {info_state['weak_streak']}/3")
+        # Determine risk level color
+        if score < 2.5:
+            risk_emoji = "🟢 Stable"
+        elif score < 4.5:
+            risk_emoji = "🟡 Watch"
+        elif score < 6.5:
+            risk_emoji = "🟠 Weak"
+        else:
+            risk_emoji = "🔴 Critical"
 
-        # Apply cooldown only to SELL alerts
+        # Collect near-weak signals
+        if weak_streak in [1, 2]:
+            weak_near.append(f"⚠️ {ticker}: Weak {weak_streak}/3 | Score {score:.1f} {risk_emoji}")
+
+        # SELL alerts
         if decision:
             now_utc = datetime.utcnow()
             send_alert = True
             last_alert = info_state.get("last_alert_time")
             last_score = info_state.get("last_score", 0)
+
             if last_alert:
                 last_alert_dt = datetime.strptime(last_alert, "%Y-%m-%dT%H:%M:%SZ")
                 hours_since = (now_utc - last_alert_dt).total_seconds() / 3600
@@ -258,26 +298,46 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             if send_alert:
                 info_state["last_alert_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
                 info_state["last_score"] = score
-                sell_alerts.append(f"**{ticker}** — {reason} ({pnl_pct:.2f}%)")
+                sell_alerts.append(f"**{ticker}** — {reason} | Weak {weak_streak}/3 | Score {score:.1f} {risk_emoji}")
 
-       # --- Discord Output Logic ---
+    # --- Discord Output Logic ---
     now_utc = datetime.utcnow()
 
-    # 🚨 Send SELL alerts immediately when they happen
+    # 🚨 SELL ALERTS
     if sell_alerts:
         msg = "🚨 **SELL ALERTS TRIGGERED** 🚨\n\n" + "\n".join(sell_alerts)
         if weak_near:
             msg += "\n\n📉 **Approaching Weak Signals:**\n" + "\n".join(weak_near)
+
         if not test_mode:
-            send_discord_alert(msg)
+            max_len = 1900
+            chunks = [msg[i:i + max_len] for i in range(0, len(msg), max_len)]
+            for chunk in chunks:
+                send_discord_alert(chunk)
             tracker["had_alerts"] = True
 
-    # 🕐 End-of-day summary
+    # 🕐 End-of-Day Summary
     elif end_of_day and not test_mode:
         weak_list = []
+        current_tickers = set(stocks.keys())
+
         for ticker, state in tracker["tickers"].items():
-            if state.get("weak_streak", 0) > 0:
-                weak_list.append(f"⚠️ {ticker}: Weak {state['weak_streak']}/3")
+            if ticker not in current_tickers:
+                continue
+            ws = state.get("weak_streak", 0)
+            sc = state.get("last_score", 0)
+
+            if sc < 2.5:
+                risk_emoji = "🟢 Stable"
+            elif sc < 4.5:
+                risk_emoji = "🟡 Watch"
+            elif sc < 6.5:
+                risk_emoji = "🟠 Weak"
+            else:
+                risk_emoji = "🔴 Critical"
+
+            if ws > 0:
+                weak_list.append(f"⚠️ {ticker}: Weak {ws}/3 | Score {sc:.1f} {risk_emoji}")
 
         if weak_list:
             summary = (
@@ -285,7 +345,12 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 + "\n".join(weak_list)
                 + f"\n\n🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
             )
-            send_discord_alert(summary)
+
+            max_len = 1900
+            chunks = [summary[i:i + max_len] for i in range(0, len(summary), max_len)]
+            for chunk in chunks:
+                send_discord_alert(chunk)
+
         elif not tracker["had_alerts"]:
             send_discord_alert(
                 f"😎 No sell signals today. Business doing good, boss!\n🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
