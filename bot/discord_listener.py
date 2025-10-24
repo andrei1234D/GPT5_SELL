@@ -283,42 +283,60 @@ async def sell(ctx, ticker: str, price: float, amount: str):
 
 @bot.command()
 async def list(ctx):
+    """Show all currently tracked stocks with Weak Streak + Score summary."""
     pull_from_github(DATA_FILE)
     data = load_data()
-    stocks = data["stocks"]
+    stocks = data.get("stocks", {})
 
     if not stocks:
         await ctx.send("📭 No stocks currently tracked.")
         return
 
-    # ✅ Fetch current FX
-    fx_rate = get_fx_usdron()
+    # Load tracker state to pull Weak Streak + Score
+    tracker_file = "bot/sell_alerts_tracker.json"
+    if os.path.exists(tracker_file):
+        with open(tracker_file, "r") as f:
+            try:
+                tracker = json.load(f)
+            except json.JSONDecodeError:
+                tracker = {"tickers": {}}
+    else:
+        tracker = {"tickers": {}}
 
-    msg = "**📊 Currently Tracked Stocks:**\n"
-    for t, info in stocks.items():
-        avg_price = float(info["avg_price"])
-        shares = float(info["shares"])
-        invested = float(info["invested_lei"])
+    msg_lines = ["**📊 Currently Tracked Stocks:**\n"]
 
-        # ✅ Fetch latest price
+    for ticker in stocks:
+        state = tracker["tickers"].get(ticker, {})
+        weak_streak = state.get("weak_streak", 0)
+        score = state.get("last_score", 0)
+
+        # Determine strength level
+        if score < 2.5:
+            risk_emoji = "🟢 Stable"
+        elif score < 4.5:
+            risk_emoji = "🟡 Watch"
+        elif score < 6.5:
+            risk_emoji = "🟠 Weak"
+        else:
+            risk_emoji = "🔴 Critical"
+
+        # Try to fetch current price (optional)
         try:
-            px = yf.Ticker(t).history(period="1d")
-            current_price = float(px["Close"].iloc[-1]) if not px.empty else avg_price
+            px = yf.Ticker(ticker).history(period="1d")
+            current_price = float(px["Close"].iloc[-1]) if not px.empty else None
         except Exception:
-            current_price = avg_price
+            current_price = None
 
-        current_value_usd = current_price * shares
-        current_value_lei = current_value_usd * fx_rate
+        if current_price:
+            msg_lines.append(
+                f"{ticker}: {risk_emoji} | Weak {weak_streak}/3 | Score {score:.1f} | Price: {current_price:.2f} USD"
+            )
+        else:
+            msg_lines.append(
+                f"{ticker}: {risk_emoji} | Weak {weak_streak}/3 | Score {score:.1f}"
+            )
 
-        pnl_lei = current_value_lei - invested
-        pnl_pct = (pnl_lei / invested * 100) if invested > 0 else 0
-
-        msg += (
-            f"{t}: Avg Buy: {avg_price:.2f} USD | Current: {current_value_lei:.2f} LEI "
-            f"(PnL: {pnl_lei:+.2f} LEI / {pnl_pct:+.2f}%) | FX ref: {float(info.get('fx_rate_buy', fx_rate)):.4f}\n"
-        )
-
-    msg += f"\n💰 **Cumulative Realized PnL:** {data['realized_pnl']:.2f} LEI"
+    msg = "\n".join(msg_lines)
     await ctx.send(msg)
 
 
