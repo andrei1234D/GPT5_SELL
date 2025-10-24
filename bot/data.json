@@ -29,6 +29,12 @@
       "shares": 1.0027829935479369,
       "invested_lei": 1623.96,
       "fx_rate_buy": 4.3769001960754395
+    },
+    "XGN": {
+      "avg_price": 12.0,
+      "shares": 15.267058427245873,
+      "invested_lei": 800.0,
+      "fx_rate_buy": 4.366700172424316
     }
   },
   "realized_pnl": 2623.044661482091
