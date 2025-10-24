@@ -17,7 +17,7 @@
       "recent_peak": 18.975000381469727
     },
     "NVDA": {
-      "weak_streak": 16,
+      "weak_streak": 15,
       "recent_peak": 188.1199951171875,
       "last_alert_time": "2025-10-23T10:22:06Z",
       "last_score": 4.5
@@ -36,7 +36,7 @@
     },
     "TTI": {
       "weak_streak": 0,
-      "recent_peak": 8.050000190734863
+      "recent_peak": 8.145000457763672
     },
     "CDE": {
       "weak_streak": 3,
@@ -50,7 +50,15 @@
     },
     "IDCC": {
       "weak_streak": 0,
-      "recent_peak": 378.2300109863281
+      "recent_peak": 381.80999755859375
+    },
+    "XGN": {
+      "weak_streak": 0,
+      "recent_peak": 11.960000038146973
+    },
+    "NVFY": {
+      "weak_streak": 0,
+      "recent_peak": 5.650000095367432
     }
   }
 }
