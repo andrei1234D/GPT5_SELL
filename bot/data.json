@@ -35,6 +35,12 @@
       "shares": 15.267058427245873,
       "invested_lei": 800.0,
       "fx_rate_buy": 4.366700172424316
+    },
+    "NVFY": {
+      "avg_price": 5.83,
+      "shares": 75.20358159734597,
+      "invested_lei": 1914.61,
+      "fx_rate_buy": 4.3668999671936035
     }
   },
   "realized_pnl": 2623.044661482091
