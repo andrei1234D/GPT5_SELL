@@ -14,9 +14,9 @@
     },
     "M": {
       "weak_streak": 0,
-      "recent_peak": 19.69499969482422,
-      "last_checked_price": 19.69499969482422,
-      "last_checked_time": "2025-10-28T20:14:24Z"
+      "recent_peak": 19.700000762939453,
+      "last_checked_price": 19.700000762939453,
+      "last_checked_time": "2025-10-28T20:23:25Z"
     },
     "NVDA": {
       "weak_streak": 0,
@@ -24,7 +24,7 @@
       "last_alert_time": "2025-10-23T10:22:06Z",
       "last_score": 4.5,
       "last_checked_price": 201.02999877929688,
-      "last_checked_time": "2025-10-28T20:14:24Z"
+      "last_checked_time": "2025-10-28T20:23:25Z"
     },
     "PRE": {
       "weak_streak": 5,
@@ -46,7 +46,7 @@
       "weak_streak": 0,
       "recent_peak": 8.145000457763672,
       "last_checked_price": 7.78000020980835,
-      "last_checked_time": "2025-10-28T20:14:24Z"
+      "last_checked_time": "2025-10-28T20:23:26Z"
     },
     "CDE": {
       "weak_streak": 3,
@@ -62,31 +62,31 @@
       "weak_streak": 1,
       "recent_peak": 389.99700927734375,
       "last_checked_price": 372.4800109863281,
-      "last_checked_time": "2025-10-28T20:14:25Z"
+      "last_checked_time": "2025-10-28T20:23:26Z"
     },
     "XGN": {
       "weak_streak": 0,
       "recent_peak": 12.020000457763672,
       "last_checked_price": 11.890000343322754,
-      "last_checked_time": "2025-10-28T20:14:25Z"
+      "last_checked_time": "2025-10-28T20:23:26Z"
     },
     "NVFY": {
       "weak_streak": 0,
       "recent_peak": 5.760000228881836,
       "last_checked_price": 5.730000019073486,
-      "last_checked_time": "2025-10-28T20:14:25Z"
+      "last_checked_time": "2025-10-28T20:23:27Z"
     },
     "GURU": {
       "weak_streak": 0,
       "recent_peak": 61.837799072265625,
       "last_checked_price": 61.837799072265625,
-      "last_checked_time": "2025-10-28T20:14:25Z"
+      "last_checked_time": "2025-10-28T20:23:27Z"
     },
     "MU": {
       "weak_streak": 0,
       "recent_peak": 221.9199981689453,
       "last_checked_price": 221.91000366210938,
-      "last_checked_time": "2025-10-28T20:14:26Z"
+      "last_checked_time": "2025-10-28T20:23:27Z"
     }
   }
 }
