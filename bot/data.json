@@ -47,6 +47,12 @@
       "shares": 1.5041476053544218,
       "invested_lei": 1448.18,
       "fx_rate_buy": 4.366399765014648
+    },
+    "LRCX": {
+      "avg_price": 161.9,
+      "shares": 2.013039305582873,
+      "invested_lei": 1430.0,
+      "fx_rate_buy": 4.387700080871582
     }
   },
   "realized_pnl": 2627.985982927001
