@@ -235,21 +235,24 @@ def check_sell_conditions(
 # Runner
 # ---------------------------
 def run_decision_engine(test_mode=False, end_of_day=False):
+    file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
 
-    # Reset daily alert flag if date changed
+    # ✅ Load tracker first to avoid UnboundLocalError
+    tracker = load_tracker()
+
+    # ✅ Reset daily alert flag if date changed
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
     if tracker.get("date") != today_str:
+        print(f"🧹 Resetting daily alert flag for {today_str}")
         tracker["date"] = today_str
         tracker["had_alerts"] = False
 
-    file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
     tracked = load_data(file_to_load)
     if not tracked or "stocks" not in tracked:
         print(f"⚠️ No tracked stocks found in {file_to_load}")
         return
 
     stocks = tracked["stocks"]
-    tracker = load_tracker()
     usd_to_lei = get_usd_to_lei()
     sell_alerts = []
     weak_near = []
@@ -276,7 +279,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             volume=indicators.get("volume"),
             momentum=indicators.get("momentum"),
             rsi=indicators.get("rsi"),
-            market_trend=indicators.get("market_trend"),
             ma50=indicators.get("ma50"),
             ma200=indicators.get("ma200"),
             atr=indicators.get("atr"),
@@ -293,56 +295,65 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         tracker["tickers"][ticker] = info_state
 
         # Collect “Weak” ones only for currently tracked stocks
-        if ticker in stocks and info_state.get("weak_streak", 0) in [1, 2]:
-            weak_near.append(f"⚠️ {ticker}: Weak {info_state['weak_streak']}/3")
+        if info_state.get("weak_streak", 0) in [1, 2]:
+            weak_near.append(
+                f"⚠️ {ticker}: Weak {info_state['weak_streak']}/3 | Score {score:.1f}"
+            )
 
-        # Apply cooldown only to SELL alerts
+        # --- SELL ALERT LOGIC ---
         if decision:
             now_utc = datetime.utcnow()
             send_alert = True
             last_alert = info_state.get("last_alert_time")
             last_score = info_state.get("last_score", 0)
+
             if last_alert:
                 last_alert_dt = datetime.strptime(last_alert, "%Y-%m-%dT%H:%M:%SZ")
                 hours_since = (now_utc - last_alert_dt).total_seconds() / 3600
                 if hours_since < 3 and abs(score - last_score) < 0.5:
-                    send_alert = False
+                    send_alert = False  # avoid spamming duplicates
 
             if send_alert:
                 info_state["last_alert_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
                 info_state["last_score"] = score
-                sell_alerts.append(f"**{ticker}** — {reason} ({pnl_pct:.2f}%)")
 
-           # --- Discord Output Logic ---
+                # More readable Discord alert format
+                alert_msg = (
+                    f"📊 **[{ticker}] SELL SIGNAL TRIGGERED**\n"
+                    f"{reason}\n"
+                    f"💰 Profit: {pnl_pct:+.2f}% | Score: {score:.1f} | Weak: {info_state['weak_streak']}/3\n"
+                    f"🕒 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                )
+                sell_alerts.append(alert_msg)
+
+    # --- CLEAN OLD TICKERS (REMOVE weak streaks for sold stocks) ---
+    current_tickers = set(stocks.keys())
+    tracker["tickers"] = {k: v for k, v in tracker["tickers"].items() if k in current_tickers}
+
+    # --- Discord Output Logic ---
     now_utc = datetime.utcnow()
 
     # 🚨 SELL ALERTS
     if sell_alerts:
-        msg = "🚨 **SELL ALERTS TRIGGERED** 🚨\n\n" + "\n".join(sell_alerts)
-
-        # Add “near weak” tickers if any
+        msg = "🚨 **SELL ALERTS TRIGGERED** 🚨\n\n" + "\n\n".join(sell_alerts)
         if weak_near:
             msg += "\n\n📉 **Approaching Weak Signals:**\n" + "\n".join(weak_near)
 
-        # Split message into Discord-safe chunks (2000-char limit)
         if not test_mode:
             max_len = 1900
             chunks = [msg[i:i + max_len] for i in range(0, len(msg), max_len)]
-            for i, chunk in enumerate(chunks):
+            for chunk in chunks:
                 send_discord_alert(chunk)
             tracker["had_alerts"] = True
 
-    # 🕐 End-of-Day Summary
+    # 🕐 End-of-Day Summary (Always send once daily)
     elif end_of_day and not test_mode:
         weak_list = []
-        current_tickers = set(stocks.keys())
-
         for ticker, state in tracker["tickers"].items():
-            # Only include active holdings
-            if ticker not in current_tickers:
-                continue
             if state.get("weak_streak", 0) > 0:
-                weak_list.append(f"⚠️ {ticker}: Weak {state['weak_streak']}/3")
+                weak_list.append(
+                    f"⚠️ {ticker}: Weak {state['weak_streak']}/3 | Score {state.get('last_score', 0):.1f}"
+                )
 
         if weak_list:
             summary = (
@@ -350,18 +361,16 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 + "\n".join(weak_list)
                 + f"\n\n🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
             )
-
-            # Split long summary messages too
             max_len = 1900
             chunks = [summary[i:i + max_len] for i in range(0, len(summary), max_len)]
             for chunk in chunks:
                 send_discord_alert(chunk)
 
-        elif not tracker["had_alerts"]:
+        else:
             send_discord_alert(
-                f"😎 No sell signals today. Business doing good, boss!\n🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                f"😎 All systems stable. No sell signals today.\n"
+                f"🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
             )
-
 
     # --- Save and commit tracker ---
     save_tracker(tracker)
