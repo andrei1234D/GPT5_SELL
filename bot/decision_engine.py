@@ -77,7 +77,7 @@ def check_sell_conditions(
     info=None,
     debug=True
 ):
-    """Smart sell logic using score-based weakness, profit protection, and adaptive hard stops."""
+    """Smart sell logic using score-based weakness, profit protection, and adaptive hard stops with contextual alerts."""
     from datetime import datetime
 
     if info is None:
@@ -133,37 +133,32 @@ def check_sell_conditions(
     info["recent_peak"] = max(info["recent_peak"], current_price)
     drop_from_peak = 100 * (1 - current_price / info["recent_peak"])
 
-        # --- ADAPTIVE HARD STOPS (for high profits) ---
+    # --- ADAPTIVE HARD STOPS (for high profits) ---
     if pnl_pct is not None:
-        # 🏆 Euphoria Top Guard
         if pnl_pct >= 50:
-            if drop_from_peak >= 6 or (macd < macd_signal and rsi > 65):
+            if drop_from_peak >= 6 or (macd and macd_signal and macd < macd_signal and rsi and rsi > 65):
                 return True, (
-                    f"🏆 **Euphoria top detected** — locking in big winner.\n"
+                    f"🏆 **Euphoria top detected — locking in major profit.**\n"
                     f"Gain: +{pnl_pct:.1f}% | Drop: {drop_from_peak:.1f}% | RSI: {rsi:.1f}"
                 ), current_price, score
 
-        # 💎 Adaptive Trailing Stop (big profit, soft reversal)
-        if pnl_pct >= 35 and info.get('weak_streak', 0) >= 1:
-            if drop_from_peak >= 8 or (score >= 3.5 and momentum < 0):
+        if pnl_pct >= 35 and info.get("weak_streak", 0) >= 1:
+            if drop_from_peak >= 8 or (score >= 3.5 and momentum and momentum < 0):
                 return True, (
                     f"💎 **Strong profit showing early weakness.**\n"
                     f"Gain: +{pnl_pct:.1f}% | Drop: {drop_from_peak:.1f}% | Momentum: {momentum:.2f}"
                 ), current_price, score
 
-        # ⚠️ Mid-Profit Weakness (moderate profit losing strength)
-        if 10 <= pnl_pct < 35 and info.get('weak_streak', 0) >= 2 and score >= 5.0 and momentum < -0.2:
+        if 10 <= pnl_pct < 35 and info.get("weak_streak", 0) >= 2 and score >= 5.0 and momentum and momentum < -0.2:
             return True, (
-                f"⚠️ **Uptrend under pressure.**\n"
-                f"Gain: +{pnl_pct:.1f}% | Score: {score:.1f} | Momentum weakening ({momentum:.2f})"
-            ), current_price, score
+                    f"⚠️ **Uptrend under pressure.**\n"
+                    f"Gain: +{pnl_pct:.1f}% | Score: {score:.1f} | Momentum weakening ({momentum:.2f})"
+                ), current_price, score
 
-
-    # --- MARKET-ACTIVITY CHECK (skip overnight increments) ---
+    # --- MARKET-ACTIVITY CHECK ---
     last_price = info.get("last_checked_price")
-    last_time = info.get("last_checked_time")
     now_utc = datetime.utcnow()
-    market_hour = 13 <= now_utc.hour <= 21
+    market_hour = 13 <= now_utc.hour <= 21  # 9–17 ET equivalent
 
     price_change = None
     if last_price:
@@ -171,6 +166,7 @@ def check_sell_conditions(
             price_change = abs((current_price - last_price) / last_price) * 100
         except ZeroDivisionError:
             price_change = None
+
     skip_weak_update = (price_change is not None and price_change < 0.3) or not market_hour
     info["last_checked_price"] = current_price
     info["last_checked_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -200,31 +196,51 @@ def check_sell_conditions(
         print(f"⏳ {ticker}: Weak {info['weak_streak']}/3 — Score={score:.1f} ({level})")
         print(f"🧮 DEBUG {ticker}: Reasons={reasons}")
 
-    # --- STANDARD SELL CONDITIONS ---
+    # --- CONTEXT TAG ---
+    def context_tag(pnl):
+        if pnl is None:
+            return ""
+        if pnl > 30:
+            return "💎 Big gain cooling off"
+        elif pnl > 10:
+            return "💰 Profit losing strength"
+        elif pnl > 0:
+            return "⚠️ Small profit under pressure"
+        elif pnl > -5:
+            return "📉 Minor loss control"
+        else:
+            return "🩸 Deeper drawdown risk"
+
+    context = context_tag(pnl_pct)
+
+    # --- STANDARD SELL CONDITIONS (context-aware messages) ---
     if score >= 6.5:
         return True, (
-            f"🔴 **Critical breakdown confirmed!**\n"
-            f"Score: {score:.1f} ({level}) — trend has reversed."
+            f"🔴 **Critical breakdown confirmed.**\n"
+            f"{context} — clear trend reversal.\n"
+            f"Score: {score:.1f} ({level})"
         ), current_price, score
 
     if score >= 4.5 and info["weak_streak"] >= 3:
         return True, (
             f"🟠 **Sustained weakness detected.**\n"
-            f"Streak: {info['weak_streak']}/3 | Score: {score:.1f} — selling to preserve gains."
+            f"{context} — conditions worsening.\n"
+            f"Streak: {info['weak_streak']}/3 | Score: {score:.1f}"
         ), current_price, score
 
     if pnl_pct is not None and pnl_pct >= 20 and drop_from_peak >= 7 and score >= 3.5 and info["weak_streak"] >= 2:
         return True, (
-            f"💰 **Protecting profit — trend cooling off.**\n"
+            f"💰 **Protecting profit — rally cooling off.**\n"
             f"Gain: +{pnl_pct:.1f}% | Drop: {drop_from_peak:.1f}% | Score: {score:.1f}"
         ), current_price, score
 
     if pnl_pct is not None and pnl_pct >= 10 and score >= 5.0 and info["weak_streak"] >= 2:
         return True, (
             f"🏁 **Momentum reversal confirmed.**\n"
-            f"Gain: +{pnl_pct:.1f}% | Score: {score:.1f} — exiting early."
+            f"Gain: +{pnl_pct:.1f}% | Score: {score:.1f} — exiting cautiously."
         ), current_price, score
 
+    # Default HOLD
     return False, (
         f"🟢 **Holding steady.** Score: {score:.1f}, Weak {info['weak_streak']}/3 ({level})"
     ), current_price, score
