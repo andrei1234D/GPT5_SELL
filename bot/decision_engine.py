@@ -77,7 +77,7 @@ def check_sell_conditions(
     info=None,
     debug=True
 ):
-    """Smart sell logic using score-based weakness, profit protection, and confirmation streaks."""
+    """Smart sell logic using score-based weakness, profit protection, and adaptive hard stops."""
     from datetime import datetime
 
     if info is None:
@@ -94,7 +94,7 @@ def check_sell_conditions(
             return False, f"📈 Momentum stabilizing → HOLD.", current_price, 0
         return True, "🛑 Hard Stop Loss Triggered (-25%)", current_price, 0
 
-    # --- SCORE CALCULATION (0 → 10 scale) ---
+    # --- SCORE CALCULATION ---
     score, reasons = 0, []
 
     if momentum is not None:
@@ -115,10 +115,10 @@ def check_sell_conditions(
         score += 1.5; reasons.append("📉 MACD Bearish Crossover")
 
     if ma50 and current_price < ma50:
-        score += 1; reasons.append("📉 Price below MA50")
+        score += 1; reasons.append("📉 Below MA50")
 
     if ma200 and current_price < ma200:
-        score += 2; reasons.append("📉 Price below MA200 (Major Breakdown)")
+        score += 2; reasons.append("📉 Below MA200 (Major Breakdown)")
 
     if support and current_price < support:
         score += 2; reasons.append("📉 Support Broken")
@@ -129,10 +129,41 @@ def check_sell_conditions(
     if atr and pnl_pct is not None and atr > 7 and pnl_pct < 0:
         score += 0.5; reasons.append("⚡ High Volatility + Loss")
 
+    # --- CALCULATE DROP FROM PEAK ---
+    info["recent_peak"] = max(info["recent_peak"], current_price)
+    drop_from_peak = 100 * (1 - current_price / info["recent_peak"])
 
-        # --- MARKET-ACTIVITY CHECK (skip overnight increments) ---
+        # --- ADAPTIVE HARD STOPS (for high profits) ---
+    if pnl_pct is not None:
+        # 🏆 Euphoria Top Guard
+        if pnl_pct >= 50:
+            if drop_from_peak >= 6 or (macd < macd_signal and rsi > 65):
+                return True, (
+                    f"🏆 **Euphoria top detected** — locking in big winner.\n"
+                    f"Gain: +{pnl_pct:.1f}% | Drop: {drop_from_peak:.1f}% | RSI: {rsi:.1f}"
+                ), current_price, score
+
+        # 💎 Adaptive Trailing Stop (big profit, soft reversal)
+        if pnl_pct >= 35 and info.get('weak_streak', 0) >= 1:
+            if drop_from_peak >= 8 or (score >= 3.5 and momentum < 0):
+                return True, (
+                    f"💎 **Strong profit showing early weakness.**\n"
+                    f"Gain: +{pnl_pct:.1f}% | Drop: {drop_from_peak:.1f}% | Momentum: {momentum:.2f}"
+                ), current_price, score
+
+        # ⚠️ Mid-Profit Weakness (moderate profit losing strength)
+        if 10 <= pnl_pct < 35 and info.get('weak_streak', 0) >= 2 and score >= 5.0 and momentum < -0.2:
+            return True, (
+                f"⚠️ **Uptrend under pressure.**\n"
+                f"Gain: +{pnl_pct:.1f}% | Score: {score:.1f} | Momentum weakening ({momentum:.2f})"
+            ), current_price, score
+
+
+    # --- MARKET-ACTIVITY CHECK (skip overnight increments) ---
     last_price = info.get("last_checked_price")
     last_time = info.get("last_checked_time")
+    now_utc = datetime.utcnow()
+    market_hour = 13 <= now_utc.hour <= 21
 
     price_change = None
     if last_price:
@@ -140,37 +171,20 @@ def check_sell_conditions(
             price_change = abs((current_price - last_price) / last_price) * 100
         except ZeroDivisionError:
             price_change = None
-
-    # Determine if we should skip weak streak update
-    now_utc = datetime.utcnow()
-    market_hour = 13 <= now_utc.hour <= 21  # roughly 9:00–17:00 ET (adjust if needed)
-
-    if (price_change is not None and price_change < 0.3) or not market_hour:
-        skip_weak_update = True
-    else:
-        skip_weak_update = False
-
-    # Update tracking fields
+    skip_weak_update = (price_change is not None and price_change < 0.3) or not market_hour
     info["last_checked_price"] = current_price
     info["last_checked_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-
-
-        # --- UPDATE WEAK STREAK ---
+    # --- UPDATE WEAK STREAK ---
     if not skip_weak_update:
-        if score >= 3.5:
+        if score >= 6.5:
+            info["weak_streak"] += 2
+        elif score >= 4.5:
             info["weak_streak"] += 1
+        elif score < 2.5 or (momentum and momentum > 0.3):
+            info["weak_streak"] = 0
         else:
             info["weak_streak"] = max(0, info["weak_streak"] - 1)
-    else:
-        # Skip incrementing outside trading hours or without price movement
-        if debug:
-            print(f"⏸️ Skipping weak streak update for {ticker} (market closed or no price change)")
-
-
-    # --- CALCULATE DROP FROM PEAK ---
-    info["recent_peak"] = max(info["recent_peak"], current_price)
-    drop_from_peak = 100 * (1 - current_price / info["recent_peak"])
 
     # --- SCORE LEVEL TAG ---
     if score < 2.5:
@@ -182,46 +196,52 @@ def check_sell_conditions(
     else:
         level = "🔴 Critical"
 
-    # --- DEBUG OUTPUT ---
     if debug:
         print(f"⏳ {ticker}: Weak {info['weak_streak']}/3 — Score={score:.1f} ({level})")
         print(f"🧮 DEBUG {ticker}: Reasons={reasons}")
 
-    # --- SELL CONDITIONS ---
-
-    # 1️⃣ Critical Breakdown
+    # --- STANDARD SELL CONDITIONS ---
     if score >= 6.5:
-        return True, f"⚡ Breakdown confirmed (Score {score:.1f}, {level})", current_price, score
+        return True, (
+            f"🔴 **Critical breakdown confirmed!**\n"
+            f"Score: {score:.1f} ({level}) — trend has reversed."
+        ), current_price, score
 
-    # 2️⃣ Confirmed Sustained Weakness
     if score >= 4.5 and info["weak_streak"] >= 3:
-        return True, f"🚨 Sustained weakness ({info['weak_streak']}x, Score {score:.1f})", current_price, score
+        return True, (
+            f"🟠 **Sustained weakness detected.**\n"
+            f"Streak: {info['weak_streak']}/3 | Score: {score:.1f} — selling to preserve gains."
+        ), current_price, score
 
-    # 3️⃣ Profit Protection (requires tech confirmation)
     if pnl_pct is not None and pnl_pct >= 20 and drop_from_peak >= 7 and score >= 3.5 and info["weak_streak"] >= 2:
-        return True, f"💰 Profit protection (+{pnl_pct:.1f}%, drop {drop_from_peak:.1f}%, Score {score:.1f})", current_price, score
+        return True, (
+            f"💰 **Protecting profit — trend cooling off.**\n"
+            f"Gain: +{pnl_pct:.1f}% | Drop: {drop_from_peak:.1f}% | Score: {score:.1f}"
+        ), current_price, score
 
-    # 4️⃣ Aggressive Reversal (requires confirmation)
     if pnl_pct is not None and pnl_pct >= 10 and score >= 5.0 and info["weak_streak"] >= 2:
-        return True, f"🏁 Aggressive reversal (+{pnl_pct:.1f}%, Score {score:.1f})", current_price, score
+        return True, (
+            f"🏁 **Momentum reversal confirmed.**\n"
+            f"Gain: +{pnl_pct:.1f}% | Score: {score:.1f} — exiting early."
+        ), current_price, score
 
-    # 5️⃣ Long Hold Timeout
-    if info.get("buy_date"):
-        try:
-            holding_days = (datetime.utcnow() - datetime.strptime(info["buy_date"], "%d.%m.%Y")).days
-            if holding_days > 270 and -5 < pnl_pct < 25:
-                return True, f"⌛ Time-based review (>9 months, {holding_days} days)", current_price, score
-        except Exception:
-            pass
+    return False, (
+        f"🟢 **Holding steady.** Score: {score:.1f}, Weak {info['weak_streak']}/3 ({level})"
+    ), current_price, score
 
-    # Default HOLD
-    return False, f"🟢 HOLD — Score {score:.1f}, Weak {info['weak_streak']}/3 ({level})", current_price, score
 
 
 # ---------------------------
 # Runner
 # ---------------------------
 def run_decision_engine(test_mode=False, end_of_day=False):
+
+    # Reset daily alert flag if date changed
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    if tracker.get("date") != today_str:
+        tracker["date"] = today_str
+        tracker["had_alerts"] = False
+
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
     tracked = load_data(file_to_load)
     if not tracked or "stocks" not in tracked:
