@@ -24,12 +24,6 @@
       "invested_lei": 1623.96,
       "fx_rate_buy": 4.3769001960754395
     },
-    "XGN": {
-      "avg_price": 12.0,
-      "shares": 15.267058427245873,
-      "invested_lei": 800.0,
-      "fx_rate_buy": 4.366700172424316
-    },
     "NVFY": {
       "avg_price": 5.83,
       "shares": 75.20358159734597,
@@ -55,5 +49,5 @@
       "fx_rate_buy": 4.387700080871582
     }
   },
-  "realized_pnl": 2627.985982927001
+  "realized_pnl": 2550.630643472872
 }
