@@ -48,12 +48,6 @@
       "invested_lei": 2555.09,
       "fx_rate_buy": 4.414224365355485
     },
-    "GURU.TO": {
-      "avg_price": 6.48,
-      "shares": 42.6857242370559,
-      "invested_lei": 1217.0,
-      "fx_rate_buy": 4.399799823760986
-    },
     "III.TO": {
       "avg_price": 6.79,
       "shares": 53.390972609083356,
@@ -61,5 +55,5 @@
       "fx_rate_buy": 4.399700164794922
     }
   },
-  "realized_pnl": 2559.7240446577057
+  "realized_pnl": 2213.1856450279397
 }
