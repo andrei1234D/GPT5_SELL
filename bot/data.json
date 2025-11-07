@@ -53,13 +53,7 @@
       "shares": 42.6857242370559,
       "invested_lei": 1217.0,
       "fx_rate_buy": 4.399799823760986
-    },
-    "III": {
-      "avg_price": 6.79,
-      "shares": 53.384909061357774,
-      "invested_lei": 1595.0,
-      "fx_rate_buy": 4.400199890136719
     }
   },
-  "realized_pnl": 2559.9051868648935
+  "realized_pnl": 2559.7240446577057
 }
