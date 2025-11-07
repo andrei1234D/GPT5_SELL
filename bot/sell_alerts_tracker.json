@@ -5,54 +5,54 @@
     "M": {
       "weak_streak": 0,
       "recent_peak": 21.225000381469727,
-      "last_checked_price": 20.46500015258789,
-      "last_checked_time": "2025-11-07T20:20:08Z"
+      "last_checked_price": 20.354999542236328,
+      "last_checked_time": "2025-11-07T21:15:03Z"
     },
     "NVDA": {
       "weak_streak": 0,
       "recent_peak": 211.02499389648438,
       "last_alert_time": "2025-10-23T10:22:06Z",
       "last_score": 4.5,
-      "last_checked_price": 186.61549377441406,
-      "last_checked_time": "2025-11-07T20:20:08Z"
+      "last_checked_price": 188.14999389648438,
+      "last_checked_time": "2025-11-07T21:15:03Z"
     },
     "TTI": {
       "weak_streak": 0,
       "recent_peak": 8.145000457763672,
-      "last_checked_price": 7.449999809265137,
-      "last_checked_time": "2025-11-07T20:20:08Z"
+      "last_checked_price": 7.550000190734863,
+      "last_checked_time": "2025-11-07T21:15:03Z"
     },
     "IDCC": {
       "weak_streak": 0,
       "recent_peak": 409.25750732421875,
-      "last_checked_price": 371.44000244140625,
-      "last_checked_time": "2025-11-07T20:20:09Z",
+      "last_checked_price": 370.07000732421875,
+      "last_checked_time": "2025-11-07T21:15:03Z",
       "last_alert_time": "2025-11-03T12:42:41Z",
       "last_score": 5.0
     },
     "NVFY": {
       "weak_streak": 0,
       "recent_peak": 5.760000228881836,
-      "last_checked_price": 5.420000076293945,
-      "last_checked_time": "2025-11-07T20:20:09Z"
+      "last_checked_price": 5.380000114440918,
+      "last_checked_time": "2025-11-07T21:15:03Z"
     },
     "MU": {
       "weak_streak": 0,
       "recent_peak": 240.61749267578125,
-      "last_checked_price": 235.27499389648438,
-      "last_checked_time": "2025-11-07T20:20:09Z"
+      "last_checked_price": 237.9199981689453,
+      "last_checked_time": "2025-11-07T21:15:04Z"
     },
     "LRCX": {
       "weak_streak": 0,
       "recent_peak": 166.77000427246094,
-      "last_checked_price": 157.63999938964844,
-      "last_checked_time": "2025-11-07T20:20:09Z"
+      "last_checked_price": 159.35000610351562,
+      "last_checked_time": "2025-11-07T21:15:04Z"
     },
     "FSLR": {
       "weak_streak": 0,
       "recent_peak": 277.3900146484375,
-      "last_checked_price": 265.6300048828125,
-      "last_checked_time": "2025-11-07T20:20:10Z"
+      "last_checked_price": 267.6400146484375,
+      "last_checked_time": "2025-11-07T21:15:04Z"
     },
     "GURU.TO": {
       "weak_streak": 1,
@@ -65,8 +65,8 @@
     "III.TO": {
       "weak_streak": 0,
       "recent_peak": 7.0,
-      "last_checked_price": 7.0,
-      "last_checked_time": "2025-11-07T20:20:10Z"
+      "last_checked_price": 6.960000038146973,
+      "last_checked_time": "2025-11-07T21:15:04Z"
     }
   }
 }
