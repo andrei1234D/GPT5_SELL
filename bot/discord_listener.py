@@ -283,7 +283,7 @@ async def sell(ctx, ticker: str, price: float, amount: str):
 
 @bot.command()
 async def list(ctx):
-    """Show all currently tracked stocks with Weak Streak, Score, and Profit summary."""
+    """Show all currently tracked stocks with Weak Streak, Score, and PnL summary."""
     pull_from_github(DATA_FILE)
     data = load_data()
     stocks = data.get("stocks", {})
@@ -292,7 +292,6 @@ async def list(ctx):
         await ctx.send("📭 No stocks currently tracked.")
         return
 
-    # Load tracker for Weak + Score data
     tracker_file = "bot/sell_alerts_tracker.json"
     if os.path.exists(tracker_file):
         with open(tracker_file, "r") as f:
@@ -303,32 +302,37 @@ async def list(ctx):
     else:
         tracker = {"tickers": {}}
 
-    msg_lines = ["**📊 Currently Tracked Stocks:**\n"]
+    # --- Fetch latest FX for accurate current valuation ---
+    fx_live = get_fx_usdron()
 
+    msg_lines = ["**📊 Currently Tracked Stocks:**\n"]
+    total_unrealized_pnl = 0.0
     stock_list = []
+
     for ticker, info in stocks.items():
         avg_price = float(info.get("avg_price", 0))
         shares = float(info.get("shares", 0))
-        invested = float(info.get("invested_lei", 0))
-        fx_rate = float(info.get("fx_rate_buy", 4.6))  # fallback
+        invested_lei = float(info.get("invested_lei", 0))
+        fx_buy = float(info.get("fx_rate_buy", fx_live))
 
-        # Try to fetch current USD price
+        # --- Get current market price ---
         try:
             px = yf.Ticker(ticker).history(period="1d")
             current_price = float(px["Close"].iloc[-1]) if not px.empty else avg_price
         except Exception:
             current_price = avg_price
 
-        # Calculate current value and PnL in LEI
-        current_value_lei = current_price * shares * fx_rate
-        pnl_lei = current_value_lei - invested
+        # --- Calculate unrealized PnL (using live FX) ---
+        current_value_lei = current_price * shares * fx_live
+        pnl_lei = current_value_lei - invested_lei
+        total_unrealized_pnl += pnl_lei
 
-        # Tracker data
+        # --- Tracker info ---
         state = tracker["tickers"].get(ticker, {})
-        weak_streak = state.get("weak_streak", 0)
-        score = state.get("last_score", 0)
+        weak_streak = state.get("weak_streak", 0.0)
+        score = state.get("last_score", 0.0)
 
-        # Determine strength level
+        # --- Risk Level ---
         if score < 2.5:
             risk_emoji = "🟢 Stable"
         elif score < 4.5:
@@ -346,21 +350,39 @@ async def list(ctx):
             "pnl_lei": pnl_lei
         })
 
-    # Sort by score (descending, most critical first)
+    # --- Sort by risk level / score ---
     stock_list.sort(key=lambda x: x["score"], reverse=True)
 
+    # --- Compose message ---
     for s in stock_list:
         pnl_sign = "+" if s["pnl_lei"] >= 0 else ""
         msg_lines.append(
-            f"{s['ticker']}: {s['emoji']} | Weak {s['weak']}/3 | Score {s['score']:.1f} | PROFIT: {pnl_sign}{s['pnl_lei']:.2f} LEI"
+            f"**{s['ticker']}** — {s['emoji']}\n"
+            f"    Weak {s['weak']:.1f}/3 | Score {s['score']:.1f}\n"
+            f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} LEI\n"
         )
 
-    # 💰 Add total realized PnL summary
+    # --- Add PnL totals ---
     realized_pnl = data.get("realized_pnl", 0.0)
-    msg_lines.append(f"\n💰 **Cumulative Realized PnL:** {realized_pnl:+.2f} LEI")
+    pnl_sign_unrealized = "+" if total_unrealized_pnl >= 0 else ""
+    pnl_sign_realized = "+" if realized_pnl >= 0 else ""
+
+    msg_lines.append(
+        f"📈 **Unrealized PnL (open positions):** {pnl_sign_unrealized}{total_unrealized_pnl:.2f} LEI"
+    )
+    msg_lines.append(
+        f"💰 **Cumulative Realized PnL:** {pnl_sign_realized}{realized_pnl:.2f} LEI"
+    )
 
     msg = "\n".join(msg_lines)
-    await ctx.send(msg)
+
+    # Split if too long for Discord
+    if len(msg) > 1900:
+        chunks = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
+        for chunk in chunks:
+            await ctx.send(chunk)
+    else:
+        await ctx.send(msg)
 
 
 @bot.command()

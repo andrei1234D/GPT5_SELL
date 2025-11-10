@@ -77,14 +77,17 @@ def check_sell_conditions(
     info=None,
     debug=True
 ):
-    """Smart sell logic using score-based weakness, profit protection, and adaptive hard stops with contextual alerts."""
+    """Smart sell logic with adaptive scoring, floating weak streaks, and contextual thresholds."""
     from datetime import datetime
 
     if info is None:
         info = {}
 
-    info.setdefault("weak_streak", 0)
+    # --- Initialize defaults ---
+    info.setdefault("weak_streak", 0.0)
     info.setdefault("recent_peak", current_price)
+    info.setdefault("rolling_scores", [])
+    info.setdefault("last_decay_date", None)
 
     # --- HARD STOP LOSS ---
     if pnl_pct is not None and pnl_pct <= -25:
@@ -129,37 +132,30 @@ def check_sell_conditions(
     if atr and pnl_pct is not None and atr > 7 and pnl_pct < 0:
         score += 0.5; reasons.append("⚡ High Volatility + Loss")
 
-    # --- CALCULATE DROP FROM PEAK ---
+    # --- Update rolling average of scores ---
+    rolling = info.get("rolling_scores", [])
+    rolling.append(score)
+    if len(rolling) > 5:
+        rolling.pop(0)
+    info["rolling_scores"] = rolling
+    avg_score = sum(rolling) / len(rolling) if rolling else score
+
+    # --- Track peak and drop ---
     info["recent_peak"] = max(info["recent_peak"], current_price)
     drop_from_peak = 100 * (1 - current_price / info["recent_peak"])
 
-    # --- ADAPTIVE HARD STOPS (for high profits) ---
-    if pnl_pct is not None:
-        if pnl_pct >= 50:
-            if drop_from_peak >= 6 or (macd and macd_signal and macd < macd_signal and rsi and rsi > 65):
-                return True, (
-                    f"🏆 **Euphoria top detected — locking in major profit.**\n"
-                    f"Gain: +{pnl_pct:.1f}% | Drop: {drop_from_peak:.1f}% | RSI: {rsi:.1f}"
-                ), current_price, score
-
-        if pnl_pct >= 35 and info.get("weak_streak", 0) >= 1:
-            if drop_from_peak >= 8 or (score >= 3.5 and momentum and momentum < 0):
-                return True, (
-                    f"💎 **Strong profit showing early weakness.**\n"
-                    f"Gain: +{pnl_pct:.1f}% | Drop: {drop_from_peak:.1f}% | Momentum: {momentum:.2f}"
-                ), current_price, score
-
-        if 10 <= pnl_pct < 35 and info.get("weak_streak", 0) >= 2 and score >= 5.0 and momentum and momentum < -0.2:
-            return True, (
-                    f"⚠️ **Uptrend under pressure.**\n"
-                    f"Gain: +{pnl_pct:.1f}% | Score: {score:.1f} | Momentum weakening ({momentum:.2f})"
-                ), current_price, score
-
-    # --- MARKET-ACTIVITY CHECK ---
-    last_price = info.get("last_checked_price")
+    # --- Market hour detection ---
     now_utc = datetime.utcnow()
     market_hour = 13 <= now_utc.hour <= 21  # 9–17 ET equivalent
 
+    # --- Daily soft decay (once per day) ---
+    today_str = now_utc.strftime("%Y-%m-%d")
+    if market_hour and info.get("last_decay_date") != today_str:
+        info["weak_streak"] = max(0.0, info["weak_streak"] - 0.5)
+        info["last_decay_date"] = today_str
+
+    # --- Dynamic Weak Streak Update ---
+    last_price = info.get("last_checked_price")
     price_change = None
     if last_price:
         try:
@@ -167,83 +163,100 @@ def check_sell_conditions(
         except ZeroDivisionError:
             price_change = None
 
+    quiet_market = (atr is not None and atr < 3) and (volume is not None and volume < 0.7)
     skip_weak_update = (price_change is not None and price_change < 0.3) or not market_hour
+
+    if not skip_weak_update:
+        if score >= 6.5:
+            info["weak_streak"] += 2.0
+        elif score >= 4.0:
+            info["weak_streak"] += 1.0 if not quiet_market else 0.5
+        elif score >= 3.0 and quiet_market:
+            info["weak_streak"] += 0.5
+        elif momentum and momentum > 0.4 and rsi and rsi > 50:
+            info["weak_streak"] = 0.0  # strong recovery reset
+        elif score < 3.0 and info["weak_streak"] > 0:
+            info["weak_streak"] -= 0.5  # soft decay
+        info["weak_streak"] = max(0.0, round(info["weak_streak"], 1))
+
     info["last_checked_price"] = current_price
     info["last_checked_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # --- UPDATE WEAK STREAK ---
-    if not skip_weak_update:
-        if score >= 6.5:
-            info["weak_streak"] += 2
-        elif score >= 4.5:
-            info["weak_streak"] += 1
-        elif score < 2.5 or (momentum and momentum > 0.3):
-            info["weak_streak"] = 0
-        else:
-            info["weak_streak"] = max(0, info["weak_streak"] - 1)
-
-    # --- SCORE LEVEL TAG ---
-    if score < 2.5:
+    # --- Score Level Tag ---
+    if avg_score < 2.5:
         level = "🟢 Stable"
-    elif score < 4.5:
+    elif avg_score < 4.5:
         level = "🟡 Watch"
-    elif score < 6.5:
+    elif avg_score < 6.5:
         level = "🟠 Weak"
     else:
         level = "🔴 Critical"
 
-    if debug:
-        print(f"⏳ {ticker}: Weak {info['weak_streak']}/3 — Score={score:.1f} ({level})")
-        print(f"🧮 DEBUG {ticker}: Reasons={reasons}")
-
-    # --- CONTEXT TAG ---
+    # --- Context Tag ---
     def context_tag(pnl):
         if pnl is None:
             return ""
-        if pnl > 30:
-            return "💎 Big gain cooling off"
+        if pnl > 50:
+            return "💎 Massive gain softening"
+        elif pnl > 30:
+            return "💰 Big gain cooling off"
         elif pnl > 10:
-            return "💰 Profit losing strength"
+            return "⚠️ Profit losing strength"
         elif pnl > 0:
-            return "⚠️ Small profit under pressure"
+            return "⚠️ Minor gain under stress"
         elif pnl > -5:
-            return "📉 Minor loss control"
+            return "📉 Slight loss control"
         else:
-            return "🩸 Deeper drawdown risk"
+            return "🩸 Drawdown risk"
 
     context = context_tag(pnl_pct)
 
-    # --- STANDARD SELL CONDITIONS (context-aware messages) ---
-    if score >= 6.5:
+    # --- Debug Output ---
+    if debug:
+        print(f"⏳ {ticker}: Weak {info['weak_streak']:.1f}/3 — AvgScore={avg_score:.1f} ({level})")
+        print(f"🧮 DEBUG {ticker}: Reasons={reasons}")
+
+    # --- Adaptive Thresholds (Profit Context) ---
+    weak_streak = info["weak_streak"]
+    threshold_score, threshold_weak = 5.0, 3.0  # default
+
+    if pnl_pct is not None:
+        if pnl_pct > 50:
+            threshold_score, threshold_weak = 4.0, 1.5
+        elif pnl_pct > 30:
+            threshold_score, threshold_weak = 4.5, 2.0
+
+    # --- SELL CONDITIONS ---
+    if avg_score >= 6.5:
         return True, (
             f"🔴 **Critical breakdown confirmed.**\n"
-            f"{context} — clear trend reversal.\n"
-            f"Score: {score:.1f} ({level})"
-        ), current_price, score
+            f"{context} — strong reversal.\n"
+            f"AvgScore: {avg_score:.1f} ({level})"
+        ), current_price, avg_score
 
-    if score >= 4.5 and info["weak_streak"] >= 3:
+    if avg_score >= threshold_score and weak_streak >= threshold_weak:
         return True, (
             f"🟠 **Sustained weakness detected.**\n"
-            f"{context} — conditions worsening.\n"
-            f"Streak: {info['weak_streak']}/3 | Score: {score:.1f}"
-        ), current_price, score
+            f"{context} — deterioration confirmed.\n"
+            f"Streak: {weak_streak:.1f}/3 | AvgScore: {avg_score:.1f}"
+        ), current_price, avg_score
 
-    if pnl_pct is not None and pnl_pct >= 20 and drop_from_peak >= 7 and score >= 3.5 and info["weak_streak"] >= 2:
+    if pnl_pct is not None and pnl_pct >= 20 and drop_from_peak >= 7 and avg_score >= 3.5 and weak_streak >= 2:
         return True, (
-            f"💰 **Protecting profit — rally cooling off.**\n"
-            f"Gain: +{pnl_pct:.1f}% | Drop: {drop_from_peak:.1f}% | Score: {score:.1f}"
-        ), current_price, score
+            f"💰 **Protecting profit — rally fading.**\n"
+            f"Gain: +{pnl_pct:.1f}% | Drop: {drop_from_peak:.1f}% | AvgScore: {avg_score:.1f}"
+        ), current_price, avg_score
 
-    if pnl_pct is not None and pnl_pct >= 10 and score >= 5.0 and info["weak_streak"] >= 2:
+    if pnl_pct is not None and pnl_pct >= 10 and avg_score >= 5.0 and weak_streak >= 2:
         return True, (
             f"🏁 **Momentum reversal confirmed.**\n"
-            f"Gain: +{pnl_pct:.1f}% | Score: {score:.1f} — exiting cautiously."
-        ), current_price, score
+            f"Gain: +{pnl_pct:.1f}% | AvgScore: {avg_score:.1f} — exiting safely."
+        ), current_price, avg_score
 
-    # Default HOLD
+    # --- HOLD Default ---
     return False, (
-        f"🟢 **Holding steady.** Score: {score:.1f}, Weak {info['weak_streak']}/3 ({level})"
-    ), current_price, score
+        f"🟢 **Holding steady.** AvgScore: {avg_score:.1f}, Weak {weak_streak:.1f}/3 ({level})"
+    ), current_price, avg_score
 
 
 
@@ -289,7 +302,8 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         pnl_pct = (pnl_lei / invested_lei) * 100
         info_state = tracker["tickers"].get(ticker, {})
 
-        decision, reason, _, score = check_sell_conditions(
+        # --- Run adaptive sell logic ---
+        decision, reason, _, avg_score = check_sell_conditions(
             ticker, avg_price, current_price,
             pnl_pct=pnl_pct,
             volume=indicators.get("volume"),
@@ -309,14 +323,16 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         )
 
         tracker["tickers"][ticker] = info_state
+        weak_streak = info_state.get("weak_streak", 0.0)
 
-        # Collect “Weak” ones only for currently tracked stocks
-        if info_state.get("weak_streak", 0) in [1, 2]:
-            weak_near.append(
-                f"⚠️ {ticker}: Weak {info_state['weak_streak']}/3 | Score {score:.1f}"
-            )
+        # --- Detailed console debug line ---
+        print(f"📊 {ticker}: PnL={pnl_pct:+.2f}% | AvgScore={avg_score:.2f} | WeakStreak={weak_streak:.1f}")
 
-        # --- SELL ALERT LOGIC ---
+        # --- Near-weak watchlist collector ---
+        if 1.0 <= weak_streak < 3.0:
+            weak_near.append(f"⚠️ {ticker}: Weak {weak_streak:.1f}/3 | AvgScore {avg_score:.1f}")
+
+        # --- SELL ALERT logic ---
         if decision:
             now_utc = datetime.utcnow()
             send_alert = True
@@ -326,18 +342,18 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             if last_alert:
                 last_alert_dt = datetime.strptime(last_alert, "%Y-%m-%dT%H:%M:%SZ")
                 hours_since = (now_utc - last_alert_dt).total_seconds() / 3600
-                if hours_since < 3 and abs(score - last_score) < 0.5:
+                if hours_since < 3 and abs(avg_score - last_score) < 0.5:
                     send_alert = False  # avoid spamming duplicates
 
             if send_alert:
                 info_state["last_alert_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-                info_state["last_score"] = score
+                info_state["last_score"] = avg_score
 
-                # More readable Discord alert format
+                # --- Discord Alert Message ---
                 alert_msg = (
                     f"📊 **[{ticker}] SELL SIGNAL TRIGGERED**\n"
                     f"{reason}\n"
-                    f"💰 Profit: {pnl_pct:+.2f}% | Score: {score:.1f} | Weak: {info_state['weak_streak']}/3\n"
+                    f"💰 Profit: {pnl_pct:+.2f}% | AvgScore: {avg_score:.1f} | Weak: {weak_streak:.1f}/3\n"
                     f"🕒 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
                 )
                 sell_alerts.append(alert_msg)
