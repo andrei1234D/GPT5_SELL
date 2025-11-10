@@ -7,11 +7,7 @@
       "recent_peak": 21.225000381469727,
       "last_checked_price": 20.71500015258789,
       "last_checked_time": "2025-11-10T20:15:00Z",
-      "rolling_scores": [
-        0.5,
-        0.5,
-        0.5
-      ],
+      "rolling_scores": [0.5, 0.5, 0.5],
       "last_decay_date": "2025-11-10"
     },
     "NVDA": {
@@ -21,11 +17,7 @@
       "last_score": 4.5,
       "last_checked_price": 198.58059692382812,
       "last_checked_time": "2025-11-10T20:15:00Z",
-      "rolling_scores": [
-        1.5,
-        1.5,
-        1.5
-      ],
+      "rolling_scores": [1.5, 1.5, 1.5],
       "last_decay_date": "2025-11-10"
     },
     "TTI": {
@@ -33,11 +25,7 @@
       "recent_peak": 8.145000457763672,
       "last_checked_price": 8.03499984741211,
       "last_checked_time": "2025-11-10T20:15:00Z",
-      "rolling_scores": [
-        1.5,
-        1.5,
-        1.5
-      ],
+      "rolling_scores": [1.5, 1.5, 1.5],
       "last_decay_date": "2025-11-10"
     },
     "IDCC": {
@@ -47,11 +35,7 @@
       "last_checked_time": "2025-11-10T20:15:01Z",
       "last_alert_time": "2025-11-03T12:42:41Z",
       "last_score": 5.0,
-      "rolling_scores": [
-        4.0,
-        4.0,
-        3.5
-      ],
+      "rolling_scores": [4.0, 4.0, 3.5],
       "last_decay_date": "2025-11-10"
     },
     "MU": {
@@ -59,11 +43,7 @@
       "recent_peak": 254.85499572753906,
       "last_checked_price": 253.27000427246094,
       "last_checked_time": "2025-11-10T20:15:01Z",
-      "rolling_scores": [
-        0.5,
-        0.5,
-        0.5
-      ],
+      "rolling_scores": [0.5, 0.5, 0.5],
       "last_decay_date": "2025-11-10"
     },
     "LRCX": {
@@ -71,11 +51,7 @@
       "recent_peak": 166.77000427246094,
       "last_checked_price": 166.30499267578125,
       "last_checked_time": "2025-11-10T20:15:02Z",
-      "rolling_scores": [
-        0,
-        0,
-        0
-      ],
+      "rolling_scores": [0, 0, 0],
       "last_decay_date": "2025-11-10"
     },
     "FSLR": {
@@ -83,11 +59,7 @@
       "recent_peak": 277.7699890136719,
       "last_checked_price": 274.3299865722656,
       "last_checked_time": "2025-11-10T20:15:02Z",
-      "rolling_scores": [
-        1.0,
-        1.0,
-        1.0
-      ],
+      "rolling_scores": [1.0, 1.0, 1.0],
       "last_decay_date": "2025-11-10"
     },
     "III.TO": {
@@ -95,11 +67,7 @@
       "recent_peak": 7.340000152587891,
       "last_checked_price": 7.230000019073486,
       "last_checked_time": "2025-11-10T20:15:02Z",
-      "rolling_scores": [
-        1.5,
-        1.5,
-        1.5
-      ],
+      "rolling_scores": [1.5, 1.5, 1.5],
       "last_decay_date": "2025-11-10"
     }
   }
