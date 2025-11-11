@@ -4,9 +4,23 @@ permissions:
   contents: write
 
 on:
+  #GitHub Actions works on UTC time
   schedule:
-    - cron: '0 * * * *' # every hour
-    - cron: '0 20 * * *' # every day at 19:00 UTC
+    # 1️⃣ After-hours / overnight (every 1h 30m)
+    - cron: '0 22-23,0-12/1 * * 1-5' # 10 PM – 8 AM UTC (~5 PM–4 AM ET)
+    - cron: '30 0-12/1 * * 1-5' # +30 min offset for ~1.5h interval
+
+    # 2️⃣ Pre-market (8:30 AM ET)
+    - cron: '30 13 * * 1-5' # 08:30 AM ET / 13:30 UTC
+
+    # 3️⃣ Market open → noon: every 30 minutes
+    - cron: '0,30 14-16 * * 1-5' # 09:00–11:59 AM ET
+
+    # 4️⃣ Midday → close: every 45 minutes
+    - cron: '0,45 17-20 * * 1-5' # 12:00–03:59 PM ET
+
+    # 5️⃣ End-of-day summary (4:30 PM ET)
+    - cron: '30 21 * * 1-5' # 04:30 PM ET / 21:30 UTC
   workflow_dispatch: # allow manual run
 
 jobs:

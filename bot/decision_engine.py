@@ -136,7 +136,7 @@ def check_sell_conditions(
     # --- Update rolling average of scores ---
     rolling = info.get("rolling_scores", [])
     rolling.append(score)
-    if len(rolling) > 5:
+    if len(rolling) > 7:
         rolling.pop(0)
     info["rolling_scores"] = rolling
     avg_score = sum(rolling) / len(rolling) if rolling else score
