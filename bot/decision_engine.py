@@ -88,6 +88,7 @@ def check_sell_conditions(
     info.setdefault("recent_peak", current_price)
     info.setdefault("rolling_scores", [])
     info.setdefault("last_decay_date", None)
+    info.setdefault("was_above_47", False)
 
     # --- HARD STOP LOSS ---
     if pnl_pct is not None and pnl_pct <= -25:
@@ -148,6 +149,13 @@ def check_sell_conditions(
     now_utc = datetime.utcnow()
     market_hour = 13 <= now_utc.hour <= 21  # 9–17 ET equivalent
 
+    # --- Sticky Euphoria Flag ---
+    if pnl_pct is not None:
+        if pnl_pct >= 47:
+            info["was_above_47"] = True
+        elif pnl_pct < 29:
+            info["was_above_47"] = False  # Reset after big drop
+
     # --- Daily soft decay (once per day) ---
     today_str = now_utc.strftime("%Y-%m-%d")
     if market_hour and info.get("last_decay_date") != today_str:
@@ -177,6 +185,11 @@ def check_sell_conditions(
             info["weak_streak"] = 0.0  # strong recovery reset
         elif score < 3.0 and info["weak_streak"] > 0:
             info["weak_streak"] -= 0.5  # soft decay
+
+        # --- 🔥 Drop-from-Peak Accelerator ---
+        if pnl_pct and (pnl_pct > 47 or info.get("was_above_47")) and drop_from_peak > 4:
+            info["weak_streak"] += 0.5
+
         info["weak_streak"] = max(0.0, round(info["weak_streak"], 1))
 
     info["last_checked_price"] = current_price
@@ -215,13 +228,14 @@ def check_sell_conditions(
     if debug:
         print(f"⏳ {ticker}: Weak {info['weak_streak']:.1f}/3 — AvgScore={avg_score:.1f} ({level})")
         print(f"🧮 DEBUG {ticker}: Reasons={reasons}")
+        print(f"📊 DropFromPeak={drop_from_peak:.1f}% | WasAbove47={info.get('was_above_47', False)}")
 
     # --- Adaptive Thresholds (Profit Context) ---
     weak_streak = info["weak_streak"]
     threshold_score, threshold_weak = 5.0, 3.0  # default
 
     if pnl_pct is not None:
-        if pnl_pct > 48:
+        if pnl_pct > 48 or info.get("was_above_47"):
             threshold_score, threshold_weak = 4.0, 1.5
         elif pnl_pct > 29:
             threshold_score, threshold_weak = 4.5, 2.0
