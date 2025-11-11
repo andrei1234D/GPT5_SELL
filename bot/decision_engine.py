@@ -221,9 +221,9 @@ def check_sell_conditions(
     threshold_score, threshold_weak = 5.0, 3.0  # default
 
     if pnl_pct is not None:
-        if pnl_pct > 50:
+        if pnl_pct > 48:
             threshold_score, threshold_weak = 4.0, 1.5
-        elif pnl_pct > 30:
+        elif pnl_pct > 29:
             threshold_score, threshold_weak = 4.5, 2.0
 
     # --- SELL CONDITIONS ---
