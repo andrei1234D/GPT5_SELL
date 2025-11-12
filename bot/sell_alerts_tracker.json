@@ -5,8 +5,8 @@
     "M": {
       "weak_streak": 0.0,
       "recent_peak": 21.225000381469727,
-      "last_checked_price": 20.665000915527344,
-      "last_checked_time": "2025-11-12T18:18:53Z",
+      "last_checked_price": 20.655000686645508,
+      "last_checked_time": "2025-11-12T18:53:38Z",
       "rolling_scores": [
         0.5,
         0.5,
@@ -24,33 +24,33 @@
       "recent_peak": 211.02499389648438,
       "last_alert_time": "2025-10-23T10:22:06Z",
       "last_score": 4.5,
-      "last_checked_price": 192.66000366210938,
-      "last_checked_time": "2025-11-12T18:18:53Z",
+      "last_checked_price": 192.60989379882812,
+      "last_checked_time": "2025-11-12T18:53:38Z",
       "rolling_scores": [
-        3.5,
         3.5,
         2.5,
         3.5,
         3.5,
         3.5,
+        2.5,
         2.5
       ],
       "last_decay_date": "2025-11-12",
       "was_above_47": false
     },
     "TTI": {
-      "weak_streak": 0.5,
+      "weak_streak": 1.5,
       "recent_peak": 8.244999885559082,
-      "last_checked_price": 7.65500020980835,
-      "last_checked_time": "2025-11-12T18:18:53Z",
+      "last_checked_price": 7.614999771118164,
+      "last_checked_time": "2025-11-12T18:53:38Z",
       "rolling_scores": [
-        1,
         2.5,
         2.5,
         2.5,
         2.5,
         2.5,
-        2.5
+        2.5,
+        3.5
       ],
       "last_decay_date": "2025-11-12",
       "was_above_47": true
@@ -58,14 +58,14 @@
     "IDCC": {
       "weak_streak": 4.0,
       "recent_peak": 409.25750732421875,
-      "last_checked_price": 358.75,
-      "last_checked_time": "2025-11-12T18:18:53Z",
+      "last_checked_price": 357.81500244140625,
+      "last_checked_time": "2025-11-12T18:53:39Z",
       "last_alert_time": "2025-11-03T12:42:41Z",
       "last_score": 5.0,
       "rolling_scores": [
         4.0,
-        4.0,
         5.0,
+        4.0,
         4.0,
         4.0,
         4.0,
@@ -77,8 +77,8 @@
     "MU": {
       "weak_streak": 0.0,
       "recent_peak": 254.85499572753906,
-      "last_checked_price": 245.63999938964844,
-      "last_checked_time": "2025-11-12T18:18:54Z",
+      "last_checked_price": 244.7550048828125,
+      "last_checked_time": "2025-11-12T18:53:39Z",
       "rolling_scores": [
         0,
         0,
@@ -94,8 +94,8 @@
     "LRCX": {
       "weak_streak": 0.0,
       "recent_peak": 166.77000427246094,
-      "last_checked_price": 160.9600067138672,
-      "last_checked_time": "2025-11-12T18:18:54Z",
+      "last_checked_price": 161.4199981689453,
+      "last_checked_time": "2025-11-12T18:53:39Z",
       "rolling_scores": [
         1.5,
         1.5,
@@ -111,8 +111,8 @@
     "FSLR": {
       "weak_streak": 0.0,
       "recent_peak": 277.7699890136719,
-      "last_checked_price": 268.1449890136719,
-      "last_checked_time": "2025-11-12T18:18:54Z",
+      "last_checked_price": 268.375,
+      "last_checked_time": "2025-11-12T18:53:39Z",
       "rolling_scores": [
         0.5,
         0.5,
@@ -128,8 +128,8 @@
     "III.TO": {
       "weak_streak": 0.0,
       "recent_peak": 7.340000152587891,
-      "last_checked_price": 7.300000190734863,
-      "last_checked_time": "2025-11-12T18:18:54Z",
+      "last_checked_price": 7.340000152587891,
+      "last_checked_time": "2025-11-12T18:53:39Z",
       "rolling_scores": [
         0,
         0,
@@ -151,14 +151,15 @@
         1,
         1,
         1,
+        1,
         1
       ],
       "last_decay_date": "2025-11-12",
       "was_above_47": false,
       "last_alert_time": "2025-11-12T14:44:22Z",
       "last_score": 0,
-      "last_checked_price": 16.284500122070312,
-      "last_checked_time": "2025-11-12T18:18:54Z"
+      "last_checked_price": 16.290000915527344,
+      "last_checked_time": "2025-11-12T18:53:40Z"
     }
   }
 }
