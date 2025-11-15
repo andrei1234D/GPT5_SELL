@@ -335,7 +335,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             info=info_state,
             debug=True
         )
-
+        last_score = info_state.get("last_score", 0)
         tracker["tickers"][ticker] = info_state
         weak_streak = info_state.get("weak_streak", 0.0)
 
@@ -345,13 +345,14 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         # --- Near-weak watchlist collector ---
         if 1.0 <= weak_streak < 3.0:
             weak_near.append(f"⚠️ {ticker}: Weak {weak_streak:.1f}/3 | AvgScore {avg_score:.1f}")
+        info_state["last_score"] = avg_score
 
         # --- SELL ALERT logic ---
         if decision:
             now_utc = datetime.utcnow()
             send_alert = True
             last_alert = info_state.get("last_alert_time")
-            last_score = info_state.get("last_score", 0)
+            
 
             if last_alert:
                 last_alert_dt = datetime.strptime(last_alert, "%Y-%m-%dT%H:%M:%SZ")
@@ -361,7 +362,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
             if send_alert:
                 info_state["last_alert_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-                info_state["last_score"] = avg_score
 
                 # --- Discord Alert Message ---
                 alert_msg = (
