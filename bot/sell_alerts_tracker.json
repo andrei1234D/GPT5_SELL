@@ -6,7 +6,7 @@
       "weak_streak": 0.0,
       "recent_peak": 21.225000381469727,
       "last_checked_price": 19.989999771118164,
-      "last_checked_time": "2025-11-17T12:32:23Z",
+      "last_checked_time": "2025-11-17T13:06:36Z",
       "rolling_scores": [
         1.5,
         1.5,
@@ -16,7 +16,7 @@
         1.5,
         1.5
       ],
-      "last_decay_date": "2025-11-15",
+      "last_decay_date": "2025-11-17",
       "was_above_47": false,
       "last_score": 1.5
     },
@@ -25,7 +25,7 @@
       "recent_peak": 211.02499389648438,
       "last_alert_time": "2025-10-23T10:22:06Z",
       "last_checked_price": 190.1699981689453,
-      "last_checked_time": "2025-11-17T12:32:23Z",
+      "last_checked_time": "2025-11-17T13:06:36Z",
       "rolling_scores": [
         1.5,
         1.5,
@@ -35,15 +35,15 @@
         1.5,
         1.5
       ],
-      "last_decay_date": "2025-11-15",
+      "last_decay_date": "2025-11-17",
       "was_above_47": false,
       "last_score": 1.5
     },
     "TTI": {
-      "weak_streak": 1.0,
+      "weak_streak": 0.5,
       "recent_peak": 8.244999885559082,
       "last_checked_price": 7.699999809265137,
-      "last_checked_time": "2025-11-17T12:32:23Z",
+      "last_checked_time": "2025-11-17T13:06:36Z",
       "rolling_scores": [
         1.5,
         1.5,
@@ -53,7 +53,7 @@
         1.5,
         1.5
       ],
-      "last_decay_date": "2025-11-15",
+      "last_decay_date": "2025-11-17",
       "was_above_47": true,
       "last_alert_time": "2025-11-13T13:50:05Z",
       "last_score": 1.5
@@ -62,7 +62,7 @@
       "weak_streak": 0.0,
       "recent_peak": 254.85499572753906,
       "last_checked_price": 246.8300018310547,
-      "last_checked_time": "2025-11-17T12:32:24Z",
+      "last_checked_time": "2025-11-17T13:06:37Z",
       "rolling_scores": [
         2.5,
         2.5,
@@ -72,15 +72,15 @@
         2.5,
         2.5
       ],
-      "last_decay_date": "2025-11-15",
+      "last_decay_date": "2025-11-17",
       "was_above_47": false,
       "last_score": 2.5
     },
     "LRCX": {
-      "weak_streak": 4.5,
+      "weak_streak": 4.0,
       "recent_peak": 166.77000427246094,
       "last_checked_price": 148.25999450683594,
-      "last_checked_time": "2025-11-17T12:32:24Z",
+      "last_checked_time": "2025-11-17T13:06:37Z",
       "rolling_scores": [
         5.5,
         5.5,
@@ -90,16 +90,16 @@
         5.5,
         5.5
       ],
-      "last_decay_date": "2025-11-15",
+      "last_decay_date": "2025-11-17",
       "was_above_47": false,
       "last_alert_time": "2025-11-17T10:44:36Z",
       "last_score": 5.5
     },
     "FSLR": {
-      "weak_streak": 8.0,
+      "weak_streak": 7.5,
       "recent_peak": 277.7699890136719,
       "last_checked_price": 253.0800018310547,
-      "last_checked_time": "2025-11-17T12:32:24Z",
+      "last_checked_time": "2025-11-17T13:06:37Z",
       "rolling_scores": [
         4.0,
         4.0,
@@ -109,7 +109,7 @@
         4.0,
         4.0
       ],
-      "last_decay_date": "2025-11-15",
+      "last_decay_date": "2025-11-17",
       "was_above_47": false,
       "last_score": 4.0
     },
@@ -117,7 +117,7 @@
       "weak_streak": 0.0,
       "recent_peak": 7.46999979019165,
       "last_checked_price": 7.25,
-      "last_checked_time": "2025-11-17T12:32:24Z",
+      "last_checked_time": "2025-11-17T13:06:37Z",
       "rolling_scores": [
         0,
         0,
@@ -127,7 +127,7 @@
         0,
         0
       ],
-      "last_decay_date": "2025-11-15",
+      "last_decay_date": "2025-11-17",
       "was_above_47": false,
       "last_score": 0.0
     },
@@ -143,11 +143,11 @@
         0,
         0
       ],
-      "last_decay_date": "2025-11-15",
+      "last_decay_date": "2025-11-17",
       "was_above_47": false,
       "last_alert_time": "2025-11-12T14:44:22Z",
       "last_checked_price": 16.510000228881836,
-      "last_checked_time": "2025-11-17T12:32:24Z",
+      "last_checked_time": "2025-11-17T13:06:37Z",
       "last_score": 0.0
     }
   }
