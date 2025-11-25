@@ -5,48 +5,48 @@
     "M": {
       "weak_streak": 0.0,
       "recent_peak": 21.975000381469727,
-      "last_checked_price": 21.975000381469727,
-      "last_checked_time": "2025-11-25T20:51:23Z",
+      "last_checked_price": 21.850000381469727,
+      "last_checked_time": "2025-11-25T21:39:47Z",
       "rolling_scores": [
         1.5,
         1.5,
         1.5,
         1.5,
         1.5,
-        1.5,
+        0,
         0
       ],
       "last_decay_date": "2025-11-25",
       "was_above_47": false,
-      "last_score": 1.2857142857142858
+      "last_score": 1.0714285714285714
     },
     "NVDA": {
       "weak_streak": 46.0,
       "recent_peak": 211.02499389648438,
       "last_alert_time": "2025-11-25T19:48:07Z",
-      "last_checked_price": 177.64700317382812,
-      "last_checked_time": "2025-11-25T20:51:24Z",
+      "last_checked_price": 177.82000732421875,
+      "last_checked_time": "2025-11-25T21:39:47Z",
       "rolling_scores": [
-        6.0,
         6.0,
         6.0,
         6.0,
         6.5,
         6.0,
-        6.0
+        6.0,
+        7.0
       ],
       "last_decay_date": "2025-11-25",
       "was_above_47": false,
-      "last_score": 6.071428571428571
+      "last_score": 6.214285714285714
     },
     "TTI": {
       "weak_streak": 0.0,
       "recent_peak": 8.244999885559082,
-      "last_checked_price": 7.434999942779541,
-      "last_checked_time": "2025-11-25T20:51:24Z",
+      "last_checked_price": 7.5,
+      "last_checked_time": "2025-11-25T21:39:47Z",
       "rolling_scores": [
         2.5,
-        2.5,
+        1.5,
         1.5,
         1.5,
         1.5,
@@ -56,19 +56,19 @@
       "last_decay_date": "2025-11-25",
       "was_above_47": false,
       "last_alert_time": "2025-11-13T13:50:05Z",
-      "last_score": 1.7857142857142858
+      "last_score": 1.6428571428571428
     },
     "MU": {
-      "weak_streak": 3.0,
+      "weak_streak": 2.5,
       "recent_peak": 258.2349853515625,
-      "last_checked_price": 225.38999938964844,
-      "last_checked_time": "2025-11-25T20:51:24Z",
+      "last_checked_price": 224.52999877929688,
+      "last_checked_time": "2025-11-25T21:39:48Z",
       "rolling_scores": [
-        2.5,
         2.5,
         1.5,
         1.5,
         3.5,
+        2.5,
         2.5,
         2.5
       ],
@@ -80,8 +80,8 @@
     "LRCX": {
       "weak_streak": 30.5,
       "recent_peak": 166.77000427246094,
-      "last_checked_price": 152.17999267578125,
-      "last_checked_time": "2025-11-25T20:51:24Z",
+      "last_checked_price": 151.92999267578125,
+      "last_checked_time": "2025-11-25T21:39:48Z",
       "rolling_scores": [
         3.0,
         3.0,
@@ -99,15 +99,15 @@
     "FSLR": {
       "weak_streak": 2.0,
       "recent_peak": 277.7699890136719,
-      "last_checked_price": 260.510009765625,
-      "last_checked_time": "2025-11-25T20:51:25Z",
+      "last_checked_price": 260.3599853515625,
+      "last_checked_time": "2025-11-25T21:39:48Z",
       "rolling_scores": [
+        4.0,
+        4.0,
+        4.0,
+        4.0,
+        4.0,
         3.0,
-        4.0,
-        4.0,
-        4.0,
-        4.0,
-        4.0,
         3.0
       ],
       "last_decay_date": "2025-11-25",
@@ -118,8 +118,8 @@
     "III.TO": {
       "weak_streak": 0.0,
       "recent_peak": 7.46999979019165,
-      "last_checked_price": 7.110000133514404,
-      "last_checked_time": "2025-11-25T20:51:25Z",
+      "last_checked_price": 7.079999923706055,
+      "last_checked_time": "2025-11-25T21:39:49Z",
       "rolling_scores": [
         1.5,
         1.5,
@@ -142,15 +142,15 @@
         0.5,
         0.5,
         0.5,
-        0.5,
+        1.5,
         1.5
       ],
       "last_decay_date": "2025-11-25",
       "was_above_47": false,
       "last_alert_time": "2025-11-12T14:44:22Z",
-      "last_checked_price": 17.924999237060547,
-      "last_checked_time": "2025-11-25T20:51:25Z",
-      "last_score": 0.6428571428571429
+      "last_checked_price": 17.850000381469727,
+      "last_checked_time": "2025-11-25T21:39:49Z",
+      "last_score": 0.7857142857142857
     }
   }
 }
