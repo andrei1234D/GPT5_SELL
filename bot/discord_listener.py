@@ -18,6 +18,7 @@ for pkg in required:
         subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
 
 DATA_FILE = "bot/data.json"
+TRACKER_FILE = "bot/sell_alerts_tracker.json"
 keep_alive()
 
 # ---------------------------
@@ -66,7 +67,7 @@ def push_to_github(file_path, commit_message="Auto-update data.json from Discord
 
         res = requests.put(api_url, json=data, headers={"Authorization": f"token {GH_TOKEN}"})
         if res.status_code in [200, 201]:
-            print("✅ Pushed data.json to GitHub")
+            print("✅ Pushed", file_path, "to GitHub")
         else:
             print("❌ GitHub push failed:", res.text)
     except Exception as e:
@@ -138,6 +139,7 @@ def pull_from_github(file_path=DATA_FILE):
 async def on_ready():
     try:
         pull_from_github(DATA_FILE)
+        pull_from_github(TRACKER_FILE)  # ✅ also sync tracker from GitHub
     except Exception as e:
         print(f"⚠️ Skipped GitHub pull at startup: {e}")
     print(f"✅ Logged in as {bot.user}")
@@ -285,6 +287,8 @@ async def sell(ctx, ticker: str, price: float, amount: str):
 async def list(ctx):
     """Show all currently tracked stocks with Weak Streak, Score, and PnL summary."""
     pull_from_github(DATA_FILE)
+    pull_from_github(TRACKER_FILE)  # ✅ ensure tracker is in sync too
+
     data = load_data()
     stocks = data.get("stocks", {})
 
@@ -292,9 +296,8 @@ async def list(ctx):
         await ctx.send("📭 No stocks currently tracked.")
         return
 
-    tracker_file = "bot/sell_alerts_tracker.json"
-    if os.path.exists(tracker_file):
-        with open(tracker_file, "r") as f:
+    if os.path.exists(TRACKER_FILE):
+        with open(TRACKER_FILE, "r") as f:
             try:
                 tracker = json.load(f)
             except json.JSONDecodeError:
@@ -328,7 +331,7 @@ async def list(ctx):
         total_unrealized_pnl += pnl_lei
 
         # --- Tracker info ---
-        state = tracker["tickers"].get(ticker, {})
+        state = tracker.get("tickers", {}).get(ticker, {})
         weak_streak = state.get("weak_streak", 0.0)
         score = state.get("last_score", 0.0)
 
