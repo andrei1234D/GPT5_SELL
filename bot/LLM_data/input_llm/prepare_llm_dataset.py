@@ -158,7 +158,29 @@ def prepare_llm_dataset():
         print(f"✅ {ticker}: current_price={current_price:.2f}, pnl={pnl_pct:.2f}%")
 
     df = pd.DataFrame(rows)
-    print("🧾 Final columns in dataset:", df.columns.tolist())
+
+    # =========================================================
+    # ENFORCE CORRECT ORDER AND PRESENCE
+    # =========================================================
+    EXPECTED_COLS = [
+        "avg_high_raw", "avg_low_raw", "SMA20", "SMA50", "SMA200",
+        "EMA20", "EMA50", "EMA200", "RSI14", "MACD", "MACD_signal", "MACD_hist",
+        "ATR", "ATR%", "Volatility", "Momentum", "OBV", "Year", "volatility_30",
+        "current_price", "MarketTrend_enc", "range_position_30", "momentum_3", "vol_regime_ratio"
+    ]
+
+    # Add any missing expected columns
+    for col in EXPECTED_COLS:
+        if col not in df.columns:
+            df[col] = 0.0
+
+    # Reorder strictly for the LLM model
+    ordered_cols = EXPECTED_COLS + [
+        "Ticker", "avg_price", "shares", "invested_lei", "pnl_pct", "Timestamp"
+    ]
+    df = df[ordered_cols]
+
+    print("🧾 Final ordered columns:", df.columns.tolist())
 
     df.to_csv(OUTPUT_FILE, index=False)
     print(f"✅ Dataset saved → {OUTPUT_FILE}")
