@@ -11,9 +11,6 @@ OUTPUT_FILE = os.path.join(OUTPUT_DIR, "llm_input_latest.csv")
 INPUT_FILE = "bot/data.json"
 
 
-# ===============================
-# Helper: Safe Git Commit
-# ===============================
 def commit_to_repo(files, message):
     try:
         subprocess.run(["git", "pull", "--rebase"], check=False)
@@ -27,33 +24,24 @@ def commit_to_repo(files, message):
         print(f"⚠️ Git commit failed: {e}")
 
 
-# ===============================
-# Feature Builders
-# ===============================
 def compute_technical_features(ticker):
-    """Compute modern LLM-ready technical indicators for one ticker."""
+    """Compute the 24 final model features for a single ticker."""
     try:
-        # ✅ Explicitly set auto_adjust=False to avoid MultiIndex columns
         df = yf.download(ticker, period="200d", interval="1d", progress=False, auto_adjust=False)
         if df.empty:
             print(f"⚠️ No data for {ticker}.")
             return None
 
-        # ✅ Flatten MultiIndex if present (new yfinance versions)
+        # Flatten MultiIndex if necessary
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
 
-        # --- Base columns ---
-        for col in ["High", "Low", "Close", "Volume"]:
-            if col not in df.columns:
-                print(f"⚠️ Missing {col} for {ticker}")
-                return None
-
+        # --- Raw base ---
         df["avg_high_raw"] = df["High"]
         df["avg_low_raw"] = df["Low"]
         df["Year"] = df.index.year
 
-        # --- Moving Averages ---
+        # --- Moving averages ---
         for w in [20, 50, 200]:
             df[f"SMA{w}"] = df["Close"].rolling(w).mean()
             df[f"EMA{w}"] = df["Close"].ewm(span=w, adjust=False).mean()
@@ -72,47 +60,44 @@ def compute_technical_features(ticker):
         df["MACD_signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
         df["MACD_hist"] = df["MACD"] - df["MACD_signal"]
 
-        # --- ATR (14-day) ---
+        # --- ATR ---
         high_low = df["High"] - df["Low"]
         high_close = np.abs(df["High"] - df["Close"].shift())
         low_close = np.abs(df["Low"] - df["Close"].shift())
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-
-        atr_series = tr.rolling(14).mean()
-
-        # ✅ Ensure Series (fix for multiple column issue)
-        if isinstance(atr_series, pd.DataFrame):
-            atr_series = atr_series.iloc[:, 0]
-
-        df["ATR"] = atr_series
+        df["ATR"] = tr.rolling(14).mean()
         df["ATR%"] = (df["ATR"] / df["Close"]) * 100
 
         # --- Volatility & Momentum ---
         df["Volatility"] = (df["High"] - df["Low"]) / df["Low"]
         df["Momentum"] = df["Close"].pct_change(3)
-
-        # --- OBV ---
         df["OBV"] = np.where(df["Close"] > df["Close"].shift(),
                              df["Volume"], -df["Volume"]).cumsum()
 
-        # --- Derived ratios ---
+        # --- 30-day volatility ---
         df["volatility_30"] = (
-            df["High"].rolling(30).mean() - df["Low"].rolling(30).mean()
-        ) / (df["Low"].rolling(30).mean() + 1e-9)
-
-        df["range_position_30"] = (
-            (df["Close"] - df["Low"].rolling(30).min())
-            / (df["High"].rolling(30).max() - df["Low"].rolling(30).min() + 1e-9)
+            (df["High"].rolling(30).mean() - df["Low"].rolling(30).mean())
+            / (df["Low"].rolling(30).mean() + 1e-9)
         )
 
-        df["momentum_3"] = df["Close"].pct_change(3)
-        df["vol_regime_ratio"] = df["Volatility"] / (df["Volatility"].rolling(30).mean() + 1e-9)
-
-        # --- Market Trend encoding ---
+        # --- Market trend encoding ---
         df["MarketTrend_enc"] = np.where(
             df["Close"] > df["SMA50"], 1,
             np.where(df["Close"] < df["SMA50"], -1, 0)
         )
+
+        # --- Derived ratios ---
+        df["range_position_30"] = (
+            (df["Close"] - df["Low"].rolling(30).min())
+            / (df["High"].rolling(30).max() - df["Low"].rolling(30).min() + 1e-9)
+        ).clip(0, 1).fillna(0.5)
+
+        df["momentum_3"] = df["Close"].pct_change(3).replace([np.inf, -np.inf], 0).fillna(0)
+        df["vol_regime_ratio"] = (
+            df["volatility_30"] / (df["volatility_30"].rolling(90, min_periods=5).mean() + 1e-9)
+        ).clip(0, 5).fillna(1)
+
+        df["current_price"] = df["Close"]
 
         latest = df.iloc[-1].replace([np.inf, -np.inf], np.nan).fillna(0)
         return latest
@@ -122,11 +107,8 @@ def compute_technical_features(ticker):
         return None
 
 
-# ===============================
-# Main builder
-# ===============================
 def prepare_llm_dataset():
-    """Build dataset for all portfolio tickers directly from yfinance."""
+    """Build model-aligned dataset for all portfolio tickers."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     if not os.path.exists(INPUT_FILE):
@@ -141,7 +123,7 @@ def prepare_llm_dataset():
         return
 
     rows = []
-    print(f"📊 Fetching and computing LLM features for {len(stocks)} tickers...")
+    print(f"📊 Building LLM-ready dataset for {len(stocks)} tickers...")
 
     for ticker, info in stocks.items():
         res = compute_technical_features(ticker)
@@ -151,7 +133,7 @@ def prepare_llm_dataset():
         avg_price = info.get("avg_price", 0)
         shares = info.get("shares", 0)
         invested_lei = info.get("invested_lei", 0)
-        current_price = res["Close"]
+        current_price = res["current_price"]
 
         pnl_lei = current_price * shares * 4.6 - invested_lei
         pnl_pct = (pnl_lei / invested_lei * 100) if invested_lei else None
@@ -161,17 +143,18 @@ def prepare_llm_dataset():
             "avg_price": avg_price,
             "shares": shares,
             "invested_lei": invested_lei,
-            "current_price": current_price,
             "pnl_pct": pnl_pct,
             "Timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
         feature_cols = [
             "avg_high_raw", "avg_low_raw", "SMA20", "SMA50", "SMA200",
-            "EMA20", "EMA50", "EMA200", "RSI14", "MACD", "MACD_signal", "MACD_hist",
-            "ATR", "ATR%", "Volatility", "Momentum", "OBV", "Year", "volatility_30",
-            "MarketTrend_enc", "range_position_30", "momentum_3", "vol_regime_ratio"
+            "EMA20", "EMA50", "EMA200", "RSI14", "MACD", "MACD_signal",
+            "MACD_hist", "ATR", "ATR%", "Volatility", "Momentum", "OBV",
+            "Year", "volatility_30", "current_price", "MarketTrend_enc",
+            "range_position_30", "momentum_3", "vol_regime_ratio"
         ]
+
         for col in feature_cols:
             row[col] = res.get(col, None)
 
