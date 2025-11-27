@@ -5,8 +5,7 @@ from notify import send_discord_alert
 from fetch_data import compute_indicators
 from llm_predict import SellBrain  # ✅ new brain integration
 
-from datetime import datetime, timedelta
-import csv
+from datetime import datetime
 import os
 import json
 import subprocess
@@ -53,11 +52,9 @@ def git_commit_tracker():
     try:
         print("📝 Committing updated tracker, results, and LLM datasets...")
 
-        # --- Git identity setup ---
         subprocess.run(["git", "config", "--global", "user.email", "bot@github.com"], check=False)
         subprocess.run(["git", "config", "--global", "user.name", "AutoBot"], check=False)
 
-        # --- Files to commit ---
         files_to_commit = [
             "bot/sell_alerts_tracker.json",
             "bot/live_results.csv",
@@ -65,42 +62,35 @@ def git_commit_tracker():
             "LLM_data/input_llm/llm_predictions.csv"
         ]
 
-        # --- Add only existing files (some may be missing in test runs) ---
         for file_path in files_to_commit:
             if os.path.exists(file_path):
                 subprocess.run(["git", "add", file_path], check=False)
             else:
                 print(f"⚠️ Skipping missing file: {file_path}")
 
-        # --- Commit and push ---
         commit_msg = f"🤖 Auto-update tracker + LLM data [{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}]"
         subprocess.run(["git", "commit", "-m", commit_msg], check=False)
         subprocess.run(["git", "pull", "--rebase"], check=False)
         subprocess.run(["git", "push"], check=False)
-
         print("✅ Tracker and LLM data committed successfully.")
     except Exception as e:
         print(f"⚠️ Git commit failed: {e}")
 
 
-
 # ---------------------------
-# Sell Condition Logic
+# Scoring Engine (no direct SELL return)
 # ---------------------------
 def check_sell_conditions(
     ticker: str, buy_price: float, current_price: float,
     pnl_pct=None,
-    volume=None, momentum=None, rsi=None, market_trend=None,
+    volume=None, momentum=None, rsi=None,
     ma50=None, ma200=None, atr=None,
     macd=None, macd_signal=None,
-    bb_upper=None, bb_lower=None,
     resistance=None, support=None,
     info=None,
     debug=True
 ):
-    """Smart sell logic with adaptive scoring, floating weak streaks, and contextual thresholds."""
-    from datetime import datetime
-
+    """Compute score and weak streak (no binary SELL)."""
     if info is None:
         info = {}
 
@@ -110,6 +100,7 @@ def check_sell_conditions(
     info.setdefault("last_decay_date", None)
     info.setdefault("was_above_47", False)
 
+    # --- Hard Stop Loss (-25%) ---
     if pnl_pct is not None and pnl_pct <= -25:
         if rsi and rsi < 35:
             return False, f"📈 Oversold (RSI={rsi:.1f}), HOLD.", current_price, 0
@@ -119,6 +110,7 @@ def check_sell_conditions(
 
     score, reasons = 0, []
 
+    # --- Core scoring factors ---
     if momentum is not None:
         if momentum < -0.8:
             score += 2; reasons.append("📉 Momentum Collapse (< -0.8)")
@@ -151,6 +143,7 @@ def check_sell_conditions(
     if atr and pnl_pct is not None and atr > 7 and pnl_pct < 0:
         score += 0.5; reasons.append("⚡ High Volatility + Loss")
 
+    # --- Rolling scores and weak streak ---
     rolling = info.get("rolling_scores", [])
     rolling.append(score)
     if len(rolling) > 7:
@@ -161,117 +154,41 @@ def check_sell_conditions(
     info["recent_peak"] = max(info["recent_peak"], current_price)
     drop_from_peak = 100 * (1 - current_price / info["recent_peak"])
 
+    # --- Weak streak logic ---
     now_utc = datetime.utcnow()
     market_hour = 13 <= now_utc.hour <= 21
-
     if pnl_pct is not None:
         if pnl_pct >= 47:
             info["was_above_47"] = True
         elif pnl_pct < 29:
             info["was_above_47"] = False
 
-    today_str = now_utc.strftime("%Y-%m-%d")
-    if market_hour and info.get("last_decay_date") != today_str:
+    if market_hour and info.get("last_decay_date") != now_utc.strftime("%Y-%m-%d"):
         info["weak_streak"] = max(0.0, info["weak_streak"] - 0.5)
-        info["last_decay_date"] = today_str
-
-    last_price = info.get("last_checked_price")
-    price_change = None
-    if last_price:
-        try:
-            price_change = abs((current_price - last_price) / last_price) * 100
-        except ZeroDivisionError:
-            price_change = None
+        info["last_decay_date"] = now_utc.strftime("%Y-%m-%d")
 
     quiet_market = (atr is not None and atr < 3) and (volume is not None and volume < 0.7)
-    skip_weak_update = (price_change is not None and price_change < 0.3) or not market_hour
+    if score >= 6.5:
+        info["weak_streak"] += 2.0
+    elif score >= 4.0:
+        info["weak_streak"] += 1.0 if not quiet_market else 0.5
+    elif score >= 3.0 and quiet_market:
+        info["weak_streak"] += 0.5
+    elif momentum and momentum > 0.4 and rsi and rsi > 50:
+        info["weak_streak"] = 0.0
+    elif score < 3.0 and info["weak_streak"] > 0:
+        info["weak_streak"] -= 0.5
 
-    if not skip_weak_update:
-        if score >= 6.5:
-            info["weak_streak"] += 2.0
-        elif score >= 4.0:
-            info["weak_streak"] += 1.0 if not quiet_market else 0.5
-        elif score >= 3.0 and quiet_market:
-            info["weak_streak"] += 0.5
-        elif momentum and momentum > 0.4 and rsi and rsi > 50:
-            info["weak_streak"] = 0.0
-        elif score < 3.0 and info["weak_streak"] > 0:
-            info["weak_streak"] -= 0.5
-        if pnl_pct and (pnl_pct > 47 or info.get("was_above_47")) and drop_from_peak > 4:
-            info["weak_streak"] += 0.5
-        info["weak_streak"] = max(0.0, round(info["weak_streak"], 1))
-
-    info["last_checked_price"] = current_price
-    info["last_checked_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    if avg_score < 2.5:
-        level = "🟢 Stable"
-    elif avg_score < 4.5:
-        level = "🟡 Watch"
-    elif avg_score < 6.5:
-        level = "🟠 Weak"
-    else:
-        level = "🔴 Critical"
-
-    def context_tag(pnl):
-        if pnl is None: return ""
-        if pnl > 50: return "💎 Massive gain softening"
-        elif pnl > 30: return "💰 Big gain cooling off"
-        elif pnl > 10: return "⚠️ Profit losing strength"
-        elif pnl > 0: return "⚠️ Minor gain under stress"
-        elif pnl > -5: return "📉 Slight loss control"
-        else: return "🩸 Drawdown risk"
-
-    context = context_tag(pnl_pct)
+    info["weak_streak"] = max(0.0, round(info["weak_streak"], 1))
 
     if debug:
-        print(f"⏳ {ticker}: Weak {info['weak_streak']:.1f}/3 — AvgScore={avg_score:.1f} ({level})")
-        print(f"🧮 DEBUG {ticker}: Reasons={reasons}")
-        print(f"📊 DropFromPeak={drop_from_peak:.1f}% | WasAbove47={info.get('was_above_47', False)}")
+        print(f"⏳ {ticker}: Weak {info['weak_streak']:.1f}/3 — AvgScore={avg_score:.1f}")
 
-    weak_streak = info["weak_streak"]
-    threshold_score, threshold_weak = 5.0, 3.0
-    if pnl_pct is not None:
-        if pnl_pct > 48 or info.get("was_above_47"):
-            threshold_score, threshold_weak = 4.0, 1.5
-        elif pnl_pct > 29:
-            threshold_score, threshold_weak = 4.5, 2.0
-
-    if avg_score >= 6.5:
-        return True, (
-            f"🔴 **Critical breakdown confirmed.**\n"
-            f"{context} — strong reversal.\n"
-            f"AvgScore: {avg_score:.1f} ({level})"
-        ), current_price, avg_score
-
-    if avg_score >= threshold_score and weak_streak >= threshold_weak:
-        return True, (
-            f"🟠 **Sustained weakness detected.**\n"
-            f"{context} — deterioration confirmed.\n"
-            f"Streak: {weak_streak:.1f}/3 | AvgScore: {avg_score:.1f}"
-        ), current_price, avg_score
-
-    if pnl_pct is not None and pnl_pct >= 20 and drop_from_peak >= 7 and avg_score >= 3.5 and weak_streak >= 2:
-        return True, (
-            f"💰 **Protecting profit — rally fading.**\n"
-            f"Gain: +{pnl_pct:.1f}% | Drop: {drop_from_peak:.1f}% | "
-            f"AvgScore: {avg_score:.1f}"
-        ), current_price, avg_score
-
-    if pnl_pct is not None and pnl_pct >= 10 and avg_score >= 5.0 and weak_streak >= 2:
-        return True, (
-            f"🏁 **Momentum reversal confirmed.**\n"
-            f"Gain: +{pnl_pct:.1f}% | AvgScore: {avg_score:.1f} — exiting safely."
-        ), current_price, avg_score
-
-    return False, (
-        f"🟢 **Holding steady.** AvgScore: {avg_score:.1f}, Weak {weak_streak:.1f}/3 ({level})"
-    ), current_price, avg_score
-
+    return False, "🟢 **Holding steady.**", current_price, avg_score
 
 
 # ---------------------------
-# Runner
+# Runner with Fusion Logic
 # ---------------------------
 def run_decision_engine(test_mode=False, end_of_day=False):
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
@@ -299,6 +216,16 @@ def run_decision_engine(test_mode=False, end_of_day=False):
     usd_to_lei = get_usd_to_lei()
     sell_alerts, weak_near = [], []
 
+    # === Context helper for UI ===
+    def context_tag(pnl):
+        if pnl is None: return "⚪ Neutral"
+        if pnl > 50: return "💎 Massive Gain Softening"
+        elif pnl > 30: return "💰 Big Gain Cooling Off"
+        elif pnl > 10: return "📈 Profit Losing Strength"
+        elif pnl > 0: return "🟡 Minor Gain Under Stress"
+        elif pnl > -5: return "📉 Slight Loss Control"
+        else: return "🩸 Drawdown Risk"
+
     for ticker, info in stocks.items():
         avg_price = float(info.get("avg_price", 0))
         invested_lei = float(info.get("invested_lei", 0))
@@ -315,7 +242,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         pnl_pct = (pnl_lei / invested_lei) * 100
         info_state = tracker["tickers"].get(ticker, {})
 
-        decision, reason, _, avg_score = check_sell_conditions(
+        _, _, _, avg_score = check_sell_conditions(
             ticker, avg_price, current_price,
             pnl_pct=pnl_pct,
             volume=indicators.get("volume"),
@@ -326,18 +253,13 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             atr=indicators.get("atr"),
             macd=indicators.get("macd"),
             macd_signal=indicators.get("macd_signal"),
-            bb_upper=indicators.get("bb_upper"),
-            bb_lower=indicators.get("bb_lower"),
             resistance=indicators.get("resistance"),
             support=indicators.get("support"),
             info=info_state,
             debug=True
         )
 
-        last_score = info_state.get("last_score", 0)
-        tracker["tickers"][ticker] = info_state
         weak_streak = info_state.get("weak_streak", 0.0)
-
         ml_prob = None
         if sell_brain:
             try:
@@ -345,80 +267,77 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             except Exception as e:
                 print(f"⚠️ ML prediction failed for {ticker}: {e}")
 
-        if ml_prob is not None:
-            rule_norm = min(1.0, avg_score / 10.0)
-            w_rule, w_ml, w_bias = 0.50, 0.325, 0.175
-            sell_index = (w_rule * rule_norm) + (w_ml * ml_prob) + w_bias
-            sell_index = max(0, min(sell_index, 1))
+        # --- Fusion logic ---
+        rule_norm = min(1.0, avg_score / 10.0)
+        w_rule, w_ml, w_bias = 0.50, 0.325, 0.175
+        distance_to_mid = abs(0.55 - rule_norm)
+        dynamic_llm_weight = w_ml * (1 - distance_to_mid * 2)
+        sell_index = (w_rule * rule_norm) + (dynamic_llm_weight * ml_prob) + w_bias
+        sell_index = max(0, min(sell_index, 1))
 
-            if sell_index >= 0.75:
-                consensus = "🔥 Extreme SELL"
-            elif sell_index >= 0.60:
-                consensus = "⚠️ Early SELL Alert"
-            else:
-                consensus = "🟢 Hold / Watch"
+        # Pull-down effect (LLM softens borderline)
+        llm_softened = False
+        if avg_score >= 6.0 and avg_score < 7.0 and ml_prob < 0.45:
+            sell_index -= 0.15
+            llm_softened = True
+        sell_index = max(0, min(sell_index, 1))
 
-            reason += (f"\n\n📊 **LLM Consensus Index:** {sell_index:.2f} ({consensus})"
-                       f"\n🤖 ML Brain: {ml_prob:.2f} | Deterministic: {rule_norm:.2f}")
+        # === Determine decision zone ===
+        decision = False
+        if sell_index >= 0.75 and weak_streak >= 1.0:
+            decision = True
+            signal_label = "🔥 **STRONG SELL SIGNAL**"
+            color_tag = "🔴"
+        elif sell_index >= 0.60:
+            decision = True
+            signal_label = "⚠️ **EARLY SELL ALERT**"
+            color_tag = "🟠"
+        else:
+            decision = False
+            signal_label = "🟢 **HOLD / WATCH MODE**"
+            color_tag = "🟢"
 
-            if not decision and ml_prob >= 0.70:
-                decision = True
-                reason += "\n🤖 LLM brain confirmed SELL (high confidence)."
-            elif decision and ml_prob < 0.45:
-                decision = False
-                reason += "\n🤖 LLM brain disagrees — HOLD suggested."
+        # === Build rich message ===
+        pnl_context = context_tag(pnl_pct)
+        llm_line = f"🤖 LLM Brain: {ml_prob:.2f} | 🧮 Deterministic: {rule_norm:.2f}"
+        soft_line = "💤 LLM softened borderline SELL → HOLD." if llm_softened else ""
+        reasoning = (
+            f"{color_tag} **{signal_label}**\n"
+            f"{pnl_context}\n\n"
+            f"💰 **PnL:** {pnl_pct:+.2f}%\n"
+            f"📊 **AvgScore:** {avg_score:.2f} | Weak: {weak_streak:.1f}/3\n"
+            f"🧠 **Consensus Index:** {sell_index:.2f}\n"
+            f"{llm_line}\n"
+            f"{soft_line}"
+        )
 
-        print(f"📊 {ticker}: PnL={pnl_pct:+.2f}% | AvgScore={avg_score:.2f} | WeakStreak={weak_streak:.1f}")
-
-        if 1.0 <= weak_streak < 3.0:
-            weak_near.append(f"⚠️ {ticker}: Weak {weak_streak:.1f}/3 | AvgScore {avg_score:.1f}")
-        info_state["last_score"] = avg_score
+        print(f"{color_tag} {ticker}: {signal_label} | SellIndex={sell_index:.2f} | Weak={weak_streak:.1f} | PnL={pnl_pct:+.2f}%")
 
         if decision:
             now_utc = datetime.utcnow()
-            send_alert = True
-            last_alert = info_state.get("last_alert_time")
-            if last_alert:
-                last_alert_dt = datetime.strptime(last_alert, "%Y-%m-%dT%H:%M:%SZ")
-                hours_since = (now_utc - last_alert_dt).total_seconds() / 3600
-                if hours_since < 3 and abs(avg_score - last_score) < 0.5:
-                    send_alert = False
+            info_state["last_alert_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+            sell_alerts.append(
+                f"📈 **[{ticker}] {signal_label}**\n"
+                f"{reasoning}\n"
+                f"🕒 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+            )
 
-            if send_alert:
-                info_state["last_alert_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-                alert_msg = (f"📊 **[{ticker}] SELL SIGNAL TRIGGERED**\n"
-                             f"{reason}\n"
-                             f"💰 Profit: {pnl_pct:+.2f}% | AvgScore: {avg_score:.1f} | Weak: {weak_streak:.1f}/3\n"
-                             f"🕒 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-                sell_alerts.append(alert_msg)
-
-    current_tickers = set(stocks.keys())
-    tracker["tickers"] = {k: v for k, v in tracker["tickers"].items() if k in current_tickers}
-
-    now_utc = datetime.utcnow()
-    if sell_alerts:
-        msg = "🚨 **SELL ALERTS TRIGGERED** 🚨\n\n" + "\n\n".join(sell_alerts)
-        if weak_near:
-            msg += "\n\n📉 **Approaching Weak Signals:**\n" + "\n".join(weak_near)
-        if not test_mode:
-            for chunk in [msg[i:i+1900] for i in range(0, len(msg), 1900)]:
-                send_discord_alert(chunk)
-            tracker["had_alerts"] = True
-    elif end_of_day and not test_mode:
-        weak_list = [f"⚠️ {t}: Weak {s['weak_streak']}/3 | Score {s.get('last_score',0):.1f}"
-                     for t, s in tracker["tickers"].items() if s.get("weak_streak",0) > 0]
-        if weak_list:
-            summary = ("📊 **Daily Monitoring Update**\n\n" + "\n".join(weak_list) +
-                       f"\n\n🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-            for chunk in [summary[i:i+1900] for i in range(0, len(summary), 1900)]:
-                send_discord_alert(chunk)
-        else:
-            send_discord_alert(f"😎 All systems stable. No sell signals today.\n"
-                               f"🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        tracker["tickers"][ticker] = info_state
 
     save_tracker(tracker)
     if not test_mode:
         git_commit_tracker()
+
+    # === Send Discord summaries ===
+    now_utc = datetime.utcnow()
+    if sell_alerts:
+        msg = "🚨 **SELL SIGNALS TRIGGERED** 🚨\n\n" + "\n\n".join(sell_alerts)
+        for chunk in [msg[i:i + 1900] for i in range(0, len(msg), 1900)]:
+            send_discord_alert(chunk)
+    elif end_of_day and not test_mode:
+        send_discord_alert(f"😎 All systems stable. No sell signals today.\n"
+                           f"🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+
     print(f"✅ Decision Engine Run Complete at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
 
