@@ -10,6 +10,7 @@ OUTPUT_DIR = "LLM_data/input_llm"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "llm_input_latest.csv")
 INPUT_FILE = "bot/data.json"
 
+
 # ===============================
 # Helper: Safe Git Commit
 # ===============================
@@ -32,10 +33,21 @@ def commit_to_repo(files, message):
 def compute_technical_features(ticker):
     """Compute modern LLM-ready technical indicators for one ticker."""
     try:
-        df = yf.download(ticker, period="200d", interval="1d", progress=False)
+        # ✅ Explicitly set auto_adjust=False to avoid MultiIndex columns
+        df = yf.download(ticker, period="200d", interval="1d", progress=False, auto_adjust=False)
         if df.empty:
             print(f"⚠️ No data for {ticker}.")
             return None
+
+        # ✅ Flatten MultiIndex if present (new yfinance versions)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+
+        # --- Base columns ---
+        for col in ["High", "Low", "Close", "Volume"]:
+            if col not in df.columns:
+                print(f"⚠️ Missing {col} for {ticker}")
+                return None
 
         df["avg_high_raw"] = df["High"]
         df["avg_low_raw"] = df["Low"]
@@ -65,13 +77,14 @@ def compute_technical_features(ticker):
         high_close = np.abs(df["High"] - df["Close"].shift())
         low_close = np.abs(df["Low"] - df["Close"].shift())
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        atr_values = tr.rolling(14).mean()
 
-        # ✅ Ensure Series (fix for “multiple columns to single column”)
-        if isinstance(atr_values, pd.DataFrame):
-            atr_values = atr_values.iloc[:, 0]
+        atr_series = tr.rolling(14).mean()
 
-        df["ATR"] = atr_values
+        # ✅ Ensure Series (fix for multiple column issue)
+        if isinstance(atr_series, pd.DataFrame):
+            atr_series = atr_series.iloc[:, 0]
+
+        df["ATR"] = atr_series
         df["ATR%"] = (df["ATR"] / df["Close"]) * 100
 
         # --- Volatility & Momentum ---
@@ -86,10 +99,12 @@ def compute_technical_features(ticker):
         df["volatility_30"] = (
             df["High"].rolling(30).mean() - df["Low"].rolling(30).mean()
         ) / (df["Low"].rolling(30).mean() + 1e-9)
+
         df["range_position_30"] = (
             (df["Close"] - df["Low"].rolling(30).min())
             / (df["High"].rolling(30).max() - df["Low"].rolling(30).min() + 1e-9)
         )
+
         df["momentum_3"] = df["Close"].pct_change(3)
         df["vol_regime_ratio"] = df["Volatility"] / (df["Volatility"].rolling(30).mean() + 1e-9)
 
@@ -101,6 +116,7 @@ def compute_technical_features(ticker):
 
         latest = df.iloc[-1].replace([np.inf, -np.inf], np.nan).fillna(0)
         return latest
+
     except Exception as e:
         print(f"⚠️ Failed {ticker}: {e}")
         return None
