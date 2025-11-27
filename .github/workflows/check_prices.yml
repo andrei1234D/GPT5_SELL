@@ -61,7 +61,8 @@ jobs:
       - name: Build LLM dataset (live Yahoo Finance)
         run: |
           echo "📊 Building fresh LLM dataset..."
-          python bot/LLM_data/prepare_llm_dataset.py || true
+          python bot/LLM_data/input_llm/prepare_llm_dataset.py || true
+
 
       # -------------------------
       # 🤖 LLM Prediction Stage
