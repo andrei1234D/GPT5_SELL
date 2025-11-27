@@ -6,8 +6,10 @@ import numpy as np
 import subprocess
 from datetime import datetime
 
-OUTPUT_DIR = "LLM_data/input_llm"
+OUTPUT_DIR = "bot/LLM_data/input_llm"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "llm_input_latest.csv")
+
+
 INPUT_FILE = "bot/data.json"
 
 
