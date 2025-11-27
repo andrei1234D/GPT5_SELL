@@ -65,8 +65,14 @@ def compute_technical_features(ticker):
         high_close = np.abs(df["High"] - df["Close"].shift())
         low_close = np.abs(df["Low"] - df["Close"].shift())
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        df["ATR"] = tr.rolling(14).mean()
-        df["ATR%"] = df["ATR"] / df["Close"] * 100
+        atr_values = tr.rolling(14).mean()
+
+        # ✅ Ensure Series (fix for “multiple columns to single column”)
+        if isinstance(atr_values, pd.DataFrame):
+            atr_values = atr_values.iloc[:, 0]
+
+        df["ATR"] = atr_values
+        df["ATR%"] = (df["ATR"] / df["Close"]) * 100
 
         # --- Volatility & Momentum ---
         df["Volatility"] = (df["High"] - df["Low"]) / df["Low"]
@@ -79,7 +85,7 @@ def compute_technical_features(ticker):
         # --- Derived ratios ---
         df["volatility_30"] = (
             df["High"].rolling(30).mean() - df["Low"].rolling(30).mean()
-        ) / df["Low"].rolling(30).mean()
+        ) / (df["Low"].rolling(30).mean() + 1e-9)
         df["range_position_30"] = (
             (df["Close"] - df["Low"].rolling(30).min())
             / (df["High"].rolling(30).max() - df["Low"].rolling(30).min() + 1e-9)
@@ -93,7 +99,7 @@ def compute_technical_features(ticker):
             np.where(df["Close"] < df["SMA50"], -1, 0)
         )
 
-        latest = df.iloc[-1]
+        latest = df.iloc[-1].replace([np.inf, -np.inf], np.nan).fillna(0)
         return latest
     except Exception as e:
         print(f"⚠️ Failed {ticker}: {e}")
@@ -143,16 +149,22 @@ def prepare_llm_dataset():
             "pnl_pct": pnl_pct,
             "Timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
-        for col in [
+
+        feature_cols = [
             "avg_high_raw", "avg_low_raw", "SMA20", "SMA50", "SMA200",
             "EMA20", "EMA50", "EMA200", "RSI14", "MACD", "MACD_signal", "MACD_hist",
             "ATR", "ATR%", "Volatility", "Momentum", "OBV", "Year", "volatility_30",
             "MarketTrend_enc", "range_position_30", "momentum_3", "vol_regime_ratio"
-        ]:
+        ]
+        for col in feature_cols:
             row[col] = res.get(col, None)
 
         rows.append(row)
         print(f"✅ {ticker}: current_price={current_price:.2f}, pnl={pnl_pct:.2f}%")
+
+    if not rows:
+        print("⚠️ No valid data collected — nothing to save.")
+        return
 
     df = pd.DataFrame(rows)
     df.to_csv(OUTPUT_FILE, index=False)
