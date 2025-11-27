@@ -1,8 +1,6 @@
 [
-  "open_raw",
   "avg_high_raw",
   "avg_low_raw",
-  "close_raw",
   "SMA20",
   "SMA50",
   "SMA200",
@@ -19,15 +17,10 @@
   "Momentum",
   "OBV",
   "Year",
-  "Prev_Open",
-  "Prev_High",
-  "Prev_Low",
-  "Prev_Close",
-  "avg_open_past_3_days",
-  "avg_close_past_3_days",
-  "avg_low_30",
-  "avg_high_30",
   "volatility_30",
   "current_price",
-  "MarketTrend_enc"
+  "MarketTrend_enc",
+  "range_position_30",
+  "momentum_3",
+  "vol_regime_ratio"
 ]
