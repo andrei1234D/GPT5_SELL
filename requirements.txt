@@ -1,4 +1,9 @@
-discord.py==2.6.0
+# --- Core ---
 requests==2.32.3
-yfinance
 flask==3.1.0
+discord.py==2.6.0
+yfinance
+
+# --- LLM runtime ---
+torch>=2.2.0
+
