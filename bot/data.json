@@ -35,6 +35,12 @@
       "shares": 48.43091566912993,
       "invested_lei": 3482.05,
       "fx_rate_buy": 4.378833712379269
+    },
+    "JFU": {
+      "avg_price": 7.1,
+      "shares": 55.87865519170996,
+      "invested_lei": 1723.9,
+      "fx_rate_buy": 4.345180034637451
     }
   },
   "realized_pnl": 2628.866806991853
