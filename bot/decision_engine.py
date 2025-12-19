@@ -3,7 +3,7 @@ import yfinance as yf
 from tracker import load_data
 from notify import send_discord_alert
 from fetch_data import compute_indicators
-from llm_predict import SellBrain  # ✅ new brain integration
+from llm_predict import SellBrain  # MT Brain integration (bear/neutral/bull)
 
 from datetime import datetime
 import os
@@ -75,6 +75,43 @@ def git_commit_tracker():
         print("✅ Tracker and LLM data committed successfully.")
     except Exception as e:
         print(f"⚠️ Git commit failed: {e}")
+
+
+def infer_market_trend(indicators: dict) -> int:
+    """
+    Production-safe MarketTrend proxy if you don't already compute MarketTrend upstream.
+
+    Returns:
+      -1 = bear, 0 = neutral, 1 = bull
+
+    Logic (simple, robust):
+      - bull if MA50 > MA200 by a margin
+      - bear if MA50 < MA200 by a margin
+      - else neutral
+
+    Replace this with your own MarketTrend computation when ready.
+    """
+    ma50 = indicators.get("ma50")
+    ma200 = indicators.get("ma200")
+    if ma50 is None or ma200 is None:
+        return 0
+
+    try:
+        ma50 = float(ma50)
+        ma200 = float(ma200)
+    except Exception:
+        return 0
+
+    if ma200 <= 0:
+        return 0
+
+    # 1% band to avoid flip-flopping
+    band = 0.01 * ma200
+    if ma50 > ma200 + band:
+        return 1
+    if ma50 < ma200 - band:
+        return -1
+    return 0
 
 
 # ---------------------------
@@ -152,7 +189,6 @@ def check_sell_conditions(
     avg_score = sum(rolling) / len(rolling) if rolling else score
 
     info["recent_peak"] = max(info["recent_peak"], current_price)
-    drop_from_peak = 100 * (1 - current_price / info["recent_peak"])
 
     # --- Weak streak logic ---
     now_utc = datetime.utcnow()
@@ -188,7 +224,7 @@ def check_sell_conditions(
 
 
 # ---------------------------
-# Runner with Fusion Logic
+# Runner with Fusion Logic (Deterministic + MT Brain Gate)
 # ---------------------------
 def run_decision_engine(test_mode=False, end_of_day=False):
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
@@ -207,14 +243,14 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
     try:
         sell_brain = SellBrain()
-        print("🧠 LLM SELL brain loaded successfully.")
+        print("🧠 MT SELL brain loaded successfully (bear/neutral/bull).")
     except Exception as e:
-        print(f"⚠️ Could not load LLM brain: {e}")
+        print(f"⚠️ Could not load MT brain: {e}")
         sell_brain = None
 
     stocks = tracked["stocks"]
     usd_to_lei = get_usd_to_lei()
-    sell_alerts, weak_near = [], []
+    sell_alerts = []
 
     # === Context helper for UI ===
     def context_tag(pnl):
@@ -260,30 +296,54 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         )
 
         weak_streak = info_state.get("weak_streak", 0.0)
-        ml_prob = None
+
+        # --- MarketTrend (proxy; replace with your own later) ---
+        mt = infer_market_trend(indicators)
+
+        # --- MT Brain probability (uses best model for that regime) ---
+        mt_prob = None
+        mt_gate = 0.0
+        mt_prob_thr = None
+        mt_weight = 0.0
+
         if sell_brain:
             try:
-                ml_prob = sell_brain.predict_prob(indicators)
+                pred = sell_brain.predict_prob(indicators, market_trend=mt)
+                mt_prob = pred.get("prob")
+                mt_prob_thr = pred.get("prob_threshold")
+                mt_weight = pred.get("weight")
+
+                # Gate behavior: MT only contributes when confident.
+                # Smooth ramp: below thr => 0; above thr => scaled 0..1
+                if mt_prob is not None and mt_prob_thr is not None and mt_prob_thr < 1.0:
+                    if mt_prob <= mt_prob_thr:
+                        mt_gate = 0.0
+                    else:
+                        mt_gate = (mt_prob - mt_prob_thr) / (1.0 - mt_prob_thr)
+                        mt_gate = max(0.0, min(mt_gate, 1.0))
             except Exception as e:
-                print(f"⚠️ ML prediction failed for {ticker}: {e}")
+                print(f"⚠️ MT prediction failed for {ticker}: {e}")
 
         # --- Fusion logic ---
+        # Deterministic is proportional; MT is gated (only matters when sure)
         rule_norm = min(1.0, avg_score / 10.0)
-        w_rule, w_ml, w_bias = 0.50, 0.325, 0.175
-        distance_to_mid = abs(0.55 - rule_norm)
-        dynamic_llm_weight = w_ml * (1 - distance_to_mid * 2)
-        sell_index = (w_rule * rule_norm) + (dynamic_llm_weight * ml_prob) + w_bias
-        sell_index = max(0, min(sell_index, 1))
 
-        # Pull-down effect (LLM softens borderline)
-        llm_softened = False
-        if avg_score >= 6.0 and avg_score < 7.0 and ml_prob < 0.45:
+        # Weights: regime-specific MT weight (replaces the old LLM weight)
+        w_bias = 0.15
+        w_mt = float(mt_weight or 0.0)
+        w_rule = max(0.0, 1.0 - w_bias - w_mt)
+
+        sell_index = (w_rule * rule_norm) + (w_mt * mt_gate) + w_bias
+        sell_index = max(0.0, min(sell_index, 1.0))
+
+        # Pull-down effect: deterministic borderline SELL gets softened if MT is not confident
+        mt_softened = False
+        if avg_score >= 6.0 and avg_score < 7.0 and (mt_prob is not None) and (mt_prob_thr is not None) and (mt_prob < mt_prob_thr):
             sell_index -= 0.15
-            llm_softened = True
-        sell_index = max(0, min(sell_index, 1))
+            mt_softened = True
+        sell_index = max(0.0, min(sell_index, 1.0))
 
         # === Determine decision zone ===
-        decision = False
         if sell_index >= 0.75 and weak_streak >= 1.0:
             decision = True
             signal_label = "🔥 **STRONG SELL SIGNAL**"
@@ -299,19 +359,29 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
         # === Build rich message ===
         pnl_context = context_tag(pnl_pct)
-        llm_line = f"🤖 LLM Brain: {ml_prob:.2f} | 🧮 Deterministic: {rule_norm:.2f}"
-        soft_line = "💤 LLM softened borderline SELL → HOLD." if llm_softened else ""
+
+        # Friendly MT line (handles missing MT gracefully)
+        if mt_prob is None:
+            mt_line = f"🧠 MT Brain (regime={mt:+d}): unavailable | 🧮 Deterministic: {rule_norm:.2f}"
+        else:
+            thr_txt = f"{mt_prob_thr:.2f}" if mt_prob_thr is not None else "n/a"
+            mt_line = (
+                f"🧠 MT Brain (regime={mt:+d}): {mt_prob:.2f} (thr={thr_txt}) → gate={mt_gate:.2f} | "
+                f"🧮 Deterministic: {rule_norm:.2f}"
+            )
+
+        soft_line = "💤 MT softened borderline SELL → HOLD." if mt_softened else ""
         reasoning = (
             f"{color_tag} **{signal_label}**\n"
             f"{pnl_context}\n\n"
             f"💰 **PnL:** {pnl_pct:+.2f}%\n"
             f"📊 **AvgScore:** {avg_score:.2f} | Weak: {weak_streak:.1f}/3\n"
             f"🧠 **Consensus Index:** {sell_index:.2f}\n"
-            f"{llm_line}\n"
+            f"{mt_line}\n"
             f"{soft_line}"
         )
 
-        print(f"{color_tag} {ticker}: {signal_label} | SellIndex={sell_index:.2f} | Weak={weak_streak:.1f} | PnL={pnl_pct:+.2f}%")
+        print(f"{color_tag} {ticker}: {signal_label} | SellIndex={sell_index:.2f} | Weak={weak_streak:.1f} | PnL={pnl_pct:+.2f}% | MT={mt:+d}")
 
         if decision:
             now_utc = datetime.utcnow()
@@ -335,8 +405,10 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         for chunk in [msg[i:i + 1900] for i in range(0, len(msg), 1900)]:
             send_discord_alert(chunk)
     elif end_of_day and not test_mode:
-        send_discord_alert(f"😎 All systems stable. No sell signals today.\n"
-                           f"🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        send_discord_alert(
+            f"😎 All systems stable. No sell signals today.\n"
+            f"🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        )
 
     print(f"✅ Decision Engine Run Complete at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
