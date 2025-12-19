@@ -4,7 +4,7 @@
   "tickers": {
     "M": {
       "weak_streak": 0.0,
-      "recent_peak": 23.454999923706055,
+      "recent_peak": 23.584999084472656,
       "last_checked_price": 22.43000030517578,
       "last_checked_time": "2025-11-27T19:19:27Z",
       "rolling_scores": [
@@ -41,14 +41,14 @@
     },
     "MU": {
       "weak_streak": 0.0,
-      "recent_peak": 266.4700012207031,
+      "recent_peak": 266.89990234375,
       "last_checked_price": 230.25999450683594,
       "last_checked_time": "2025-11-27T19:19:27Z",
       "rolling_scores": [
-        1.5,
         0,
         1.5,
         1.5,
+        0,
         0,
         0,
         0
@@ -120,9 +120,9 @@
       "rolling_scores": [
         2.5,
         2.5,
-        2.5,
         1.5,
         2.5,
+        1.5,
         1.5,
         1.5
       ],
@@ -137,7 +137,7 @@
       "weak_streak": 0.0,
       "recent_peak": 6.5,
       "rolling_scores": [
-        1,
+        0,
         0,
         0,
         0,
