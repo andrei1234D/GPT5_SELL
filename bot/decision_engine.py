@@ -58,8 +58,8 @@ def git_commit_tracker():
         files_to_commit = [
             "bot/sell_alerts_tracker.json",
             "bot/live_results.csv",
-            "LLM_data/input_llm/llm_input_latest.csv",
-            "LLM_data/input_llm/llm_predictions.csv"
+            "bot/LLM_data/input_llm/llm_input_latest.csv",
+            "bot/LLM_data/input_llm/llm_predictions.csv"
         ]
 
         for file_path in files_to_commit:
@@ -88,6 +88,8 @@ def infer_market_trend(indicators: dict) -> int:
       - bull if MA50 > MA200 by a margin
       - bear if MA50 < MA200 by a margin
       - else neutral
+
+    Replace this with your own MarketTrend computation when ready.
     """
     ma50 = indicators.get("ma50")
     ma200 = indicators.get("ma200")
@@ -103,7 +105,8 @@ def infer_market_trend(indicators: dict) -> int:
     if ma200 <= 0:
         return 0
 
-    band = 0.01 * ma200  # 1% band to avoid flip-flopping
+    # 1% band to avoid flip-flopping
+    band = 0.01 * ma200
     if ma50 > ma200 + band:
         return 1
     if ma50 < ma200 - band:
@@ -273,7 +276,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         current_price = indicators["current_price"]
         pnl_lei = current_price * shares * usd_to_lei - invested_lei
         pnl_pct = (pnl_lei / invested_lei) * 100
-
         info_state = tracker["tickers"].get(ticker, {})
 
         _, _, _, avg_score = check_sell_conditions(
@@ -295,6 +297,12 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
         weak_streak = info_state.get("weak_streak", 0.0)
 
+
+        # --- Persist lightweight tracker fields for Discord UI ---
+        now_utc = datetime.utcnow()
+        info_state["last_score"] = float(avg_score)
+        info_state["last_checked_price"] = float(current_price)
+        info_state["last_checked_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
         # --- MarketTrend (proxy; replace with your own later) ---
         mt = infer_market_trend(indicators)
 
@@ -312,6 +320,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 mt_weight = pred.get("weight")
 
                 # Gate behavior: MT only contributes when confident.
+                # Smooth ramp: below thr => 0; above thr => scaled 0..1
                 if mt_prob is not None and mt_prob_thr is not None and mt_prob_thr < 1.0:
                     if mt_prob <= mt_prob_thr:
                         mt_gate = 0.0
@@ -322,8 +331,10 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 print(f"⚠️ MT prediction failed for {ticker}: {e}")
 
         # --- Fusion logic ---
+        # Deterministic is proportional; MT is gated (only matters when sure)
         rule_norm = min(1.0, avg_score / 10.0)
 
+        # Weights: regime-specific MT weight (replaces the old LLM weight)
         w_bias = 0.15
         w_mt = float(mt_weight or 0.0)
         w_rule = max(0.0, 1.0 - w_bias - w_mt)
@@ -355,6 +366,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         # === Build rich message ===
         pnl_context = context_tag(pnl_pct)
 
+        # Friendly MT line (handles missing MT gracefully)
         if mt_prob is None:
             mt_line = f"🧠 MT Brain (regime={mt:+d}): unavailable | 🧮 Deterministic: {rule_norm:.2f}"
         else:
@@ -377,37 +389,13 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
         print(f"{color_tag} {ticker}: {signal_label} | SellIndex={sell_index:.2f} | Weak={weak_streak:.1f} | PnL={pnl_pct:+.2f}% | MT={mt:+d}")
 
-        # ---------------------------
-        # ✅ Persist diagnostics to tracker (THIS is what fixes your !list output)
-        # Keep your existing key style: last_checked_price/last_checked_time/last_score
-        # ---------------------------
-        now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-        info_state["last_checked_time"] = now_iso
-        info_state["last_checked_price"] = float(current_price)
-        info_state["last_pnl_pct"] = float(pnl_pct)
-
-        # deterministic diagnostics
-        info_state["last_score"] = float(avg_score)           # matches your tracker style
-        info_state["last_rule_norm"] = float(rule_norm)
-
-        # MT diagnostics
-        info_state["last_mt_regime"] = int(mt)
-        info_state["last_mt_prob"] = None if mt_prob is None else float(mt_prob)
-        info_state["last_mt_prob_thr"] = None if mt_prob_thr is None else float(mt_prob_thr)
-        info_state["last_mt_gate"] = float(mt_gate)
-        info_state["last_mt_weight"] = float(mt_weight or 0.0)
-
-        # final fusion diagnostics
-        info_state["last_sell_index"] = float(sell_index)
-        info_state["last_signal_label"] = signal_label
-        info_state["last_decision"] = bool(decision)
-
         if decision:
-            info_state["last_alert_time"] = now_iso
+            # now_utc already captured above for tracker fields
+            info_state["last_alert_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
             sell_alerts.append(
                 f"📈 **[{ticker}] {signal_label}**\n"
                 f"{reasoning}\n"
-                f"🕒 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                f"🕒 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
             )
 
         tracker["tickers"][ticker] = info_state

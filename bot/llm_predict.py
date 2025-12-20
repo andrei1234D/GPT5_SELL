@@ -55,40 +55,59 @@ def _infer_prob_from_regressor(pred: float, sell_threshold: float) -> float:
     return float(prob)
 
 
+def _is_model_dir(p: Path) -> bool:
+    """
+    Consider a directory a valid model-dir only if it exists AND contains at least one expected model file.
+    This avoids mistakenly selecting '.' when SELL_MODEL_DIR is missing/empty.
+    """
+    try:
+        if not p or not p.exists() or not p.is_dir():
+            return False
+        return any([
+            (p / "best_model_MT-1.joblib").exists(),
+            (p / "best_model_MT0.joblib").exists(),
+            (p / "best_model_MT1.joblib").exists(),
+        ])
+    except Exception:
+        return False
+
+
 class SellBrain:
     def __init__(self, model_dir: Optional[str | Path] = None):
         """
-        model_dir:
-          - defaults to env SELL_MODEL_DIR if set
-          - else tries common locations
+        model_dir resolution order:
+          1) explicit model_dir argument (if provided)
+          2) env var SELL_MODEL_DIR (if set)
+          3) common repo locations, including bot/Brain
         """
         env_dir = os.getenv("SELL_MODEL_DIR", "").strip()
-        if model_dir is None and env_dir:
-            model_dir = env_dir
 
         candidates = []
         if model_dir is not None:
             candidates.append(Path(model_dir))
+        if env_dir:
+            candidates.append(Path(env_dir))
 
-        # common repo/colab locations (safe to try)
-        candidates = [
-            Path(os.getenv("SELL_MODEL_DIR", "")),
-            Path("bot/Brain"),          # <-- add this
+        # common repo locations
+        candidates.extend([
+            Path("bot/Brain"),
+            Path("Brain"),
             Path("SELL_trainer_agent_outputs"),
             Path("bot/models"),
             Path("models"),
-        ]
+        ])
 
-        self.model_dir = None
+        self.model_dir: Optional[Path] = None
         for c in candidates:
-            if c.exists():
+            if _is_model_dir(c):
                 self.model_dir = c
                 break
 
         if self.model_dir is None:
             raise FileNotFoundError(
-                "Could not locate model directory. Set SELL_MODEL_DIR or place files in one of: "
-                "SELL_trainer_agent_outputs / bot/models / models."
+                "Could not locate model directory. "
+                "Set SELL_MODEL_DIR or place model files in one of: "
+                "bot/Brain / Brain / SELL_trainer_agent_outputs / bot/models / models."
             )
 
         self._models: Dict[int, Any] = {}
@@ -112,31 +131,60 @@ class SellBrain:
 
         if not job.exists():
             raise FileNotFoundError(f"Missing model: {job}")
-        if not js.exists():
-            raise FileNotFoundError(f"Missing meta json: {js}")
 
         payload = load(job)
-        with open(js, "r", encoding="utf-8") as f:
-            meta = json.load(f)
+
+        # JSON is strongly recommended (it carries sell_signal threshold/calibration),
+        # but we allow it to be missing so production doesn't hard-fail.
+        if js.exists():
+            with open(js, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+        else:
+            meta = {
+                "schema_version": 0,
+                "created_utc": None,
+                "seed": None,
+                "regime": int(regime),
+                "model_type": payload.get("model_type"),
+                "feature_columns": payload.get("feature_columns", []),
+                "val_metrics": payload.get("val_metrics", {}),
+                "params": payload.get("params", {}),
+                "sell_signal": payload.get("sell_signal", {
+                    "definition": "good_sell := (SellScore >= sell_threshold)",
+                    "sell_threshold": 0.5,
+                    "prob_threshold": self._default_prob_thr,
+                    "calibration_diag": {
+                        "note": "JSON meta missing; using fallback thresholds. Commit the best_model_MT*.json files for calibrated gating."
+                    }
+                }),
+                "artifacts": {"joblib": job.name, "json": js.name},
+            }
 
         self._models[regime] = payload
         self._meta[regime] = meta
 
     def _ensure_mt0_sell_signal(self):
         m0 = self._meta.get(0, {})
-        if "sell_signal" in m0 and isinstance(m0["sell_signal"], dict):
+        if "sell_signal" in m0 and isinstance(m0["sell_signal"], dict) and ("sell_threshold" in m0["sell_signal"]):
             return
 
         m_neg = self._meta.get(-1, {})
         m_pos = self._meta.get(1, {})
 
-        s_neg = m_neg.get("sell_signal", {})
-        s_pos = m_pos.get("sell_signal", {})
+        s_neg = m_neg.get("sell_signal", {}) if isinstance(m_neg.get("sell_signal", {}), dict) else {}
+        s_pos = m_pos.get("sell_signal", {}) if isinstance(m_pos.get("sell_signal", {}), dict) else {}
 
         thr_neg = _safe_float(s_neg.get("sell_threshold"))
         thr_pos = _safe_float(s_pos.get("sell_threshold"))
 
         if thr_neg is None or thr_pos is None:
+            # Fall back to 0.5 if we can't synthesize
+            self._meta[0]["sell_signal"] = {
+                "definition": "good_sell := (SellScore >= sell_threshold)",
+                "sell_threshold": 0.5,
+                "prob_threshold": float(self._default_prob_thr),
+                "calibration_diag": {"note": "Could not synthesize MT0 threshold; missing bear/bull sell_threshold."},
+            }
             return
 
         mean_thr = 0.5 * (thr_neg + thr_pos)
@@ -204,4 +252,5 @@ class SellBrain:
             "model_type": str(payload.get("model_type")),
             "pred_sellscore": float(pred_sellscore),
             "sell_threshold": float(sell_thr),
+            "model_dir": str(self.model_dir),
         }

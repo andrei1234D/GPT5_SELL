@@ -22,18 +22,22 @@ on:
     # 5️⃣ End-of-day summary (4:30 PM ET)
     - cron: '30 21 * * 1-5' # 04:30 PM ET / 21:30 UTC
 
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 jobs:
   check-prices:
     runs-on: ubuntu-latest
+    env:
+      # Make MT Brain discoverable for both scripts (and local fallback in llm_predict.py)
+      SELL_MODEL_DIR: bot/Brain
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repo (with LFS)
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+          lfs: true
 
       - name: Set up Git identity
         run: |
@@ -59,57 +63,27 @@ jobs:
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
       # -------------------------
-      # 🧠 Dataset Builder (Yahoo Finance)
+      # 🧠 LLM Dataset Builder
       # -------------------------
-      - name: Build ML dataset (live Yahoo Finance)
+      - name: Build MT dataset (live Yahoo Finance)
         run: |
-          echo "📊 Building fresh ML dataset..."
+          echo "📊 Building fresh MT dataset..."
           python bot/LLM_data/input_llm/prepare_llm_dataset.py
 
       # -------------------------
-      # 🤖 MT Brain Prediction Stage (writes llm_predictions.csv)
+      # 🤖 MT Prediction Stage
       # -------------------------
-      - name: Run MT brain predictions
-        env:
-          SELL_MODEL_DIR: bot/Brain
+      - name: Run MT predictions
         run: |
-          echo "🧠 Running MT brain predictions..."
+          echo "🧠 Running MT SELL gate model..."
           python bot/llm_predict.py
 
       # -------------------------
-      # 🔎 Debug outputs (helps diagnose missing files)
-      # -------------------------
-      - name: Debug outputs
-        run: |
-          echo "=== bot/LLM_data/input_llm ==="
-          ls -lah bot/LLM_data/input_llm || true
-          echo "=== bot/Brain ==="
-          ls -lah bot/Brain || true
-          echo "=== git status ==="
-          git status --porcelain || true
-
-      # -------------------------
-      # 💾 Commit dataset + predictions (if changed)
-      # -------------------------
-      - name: Commit and push ML dataset + predictions
-        run: |
-          echo "💾 Committing latest ML dataset + predictions..."
-          git add bot/LLM_data/input_llm/llm_input_latest.csv || true
-          git add bot/LLM_data/input_llm/llm_predictions.csv || true
-
-          git commit -m "🤖 Update ML dataset + MT predictions [$(date -u '+%Y-%m-%d %H:%M:%S UTC')]" \
-            || echo "⚠️ Nothing to commit"
-
-          git pull --rebase
-          git push
-
-      # -------------------------
-      # 💼 Main Decision Engine (Deterministic + MT Gate)
+      # 💼 Main Decision Engine
       # -------------------------
       - name: Run price check + sell logic
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          SELL_MODEL_DIR: bot/Brain
         run: |
           echo "🕐 Running GPT-5 Sell Signal Engine..."
           HOUR=$(date -u +%H)
@@ -121,7 +95,19 @@ jobs:
             python bot/decision_engine.py
           fi
 
-  # Optional test notification job
+      # -------------------------
+      # 💾 Commit outputs (single push)
+      # -------------------------
+      - name: Commit and push latest outputs
+        run: |
+          git add bot/sell_alerts_tracker.json || true
+          git add bot/live_results.csv || true
+          git add bot/LLM_data/input_llm/llm_input_latest.csv || true
+          git add bot/LLM_data/input_llm/llm_predictions.csv || true
+          git commit -m "🤖 Auto-update tracker + MT data [$(date -u '+%Y-%m-%d %H:%M:%S UTC')]" || echo "⚠️ Nothing to commit"
+          git pull --rebase || true
+          git push || true
+
   test-notify:
     runs-on: ubuntu-latest
     steps:
