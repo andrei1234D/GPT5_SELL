@@ -48,9 +48,9 @@ def save_tracker(data):
 
 
 def git_commit_tracker():
-    """Auto-commit tracker, live results, and LLM data to GitHub repo."""
+    """Auto-commit tracker, live results, and MT dataset outputs to GitHub repo."""
     try:
-        print("📝 Committing updated tracker, results, and LLM datasets...")
+        print("📝 Committing updated tracker, results, and MT datasets...")
 
         subprocess.run(["git", "config", "--global", "user.email", "bot@github.com"], check=False)
         subprocess.run(["git", "config", "--global", "user.name", "AutoBot"], check=False)
@@ -59,7 +59,7 @@ def git_commit_tracker():
             "bot/sell_alerts_tracker.json",
             "bot/live_results.csv",
             "bot/LLM_data/input_llm/llm_input_latest.csv",
-            "bot/LLM_data/input_llm/llm_predictions.csv"
+            "bot/LLM_data/input_llm/llm_predictions.csv",
         ]
 
         for file_path in files_to_commit:
@@ -68,11 +68,11 @@ def git_commit_tracker():
             else:
                 print(f"⚠️ Skipping missing file: {file_path}")
 
-        commit_msg = f"🤖 Auto-update tracker + LLM data [{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}]"
+        commit_msg = f"🤖 Auto-update tracker + MT data [{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}]"
         subprocess.run(["git", "commit", "-m", commit_msg], check=False)
         subprocess.run(["git", "pull", "--rebase"], check=False)
         subprocess.run(["git", "push"], check=False)
-        print("✅ Tracker and LLM data committed successfully.")
+        print("✅ Tracker and MT data committed successfully.")
     except Exception as e:
         print(f"⚠️ Git commit failed: {e}")
 
@@ -297,12 +297,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
         weak_streak = info_state.get("weak_streak", 0.0)
 
-
-        # --- Persist lightweight tracker fields for Discord UI ---
-        now_utc = datetime.utcnow()
-        info_state["last_score"] = float(avg_score)
-        info_state["last_checked_price"] = float(current_price)
-        info_state["last_checked_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
         # --- MarketTrend (proxy; replace with your own later) ---
         mt = infer_market_trend(indicators)
 
@@ -311,13 +305,17 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         mt_gate = 0.0
         mt_prob_thr = None
         mt_weight = 0.0
+        pred_sellscore = None
+        sell_threshold = None
 
         if sell_brain:
             try:
                 pred = sell_brain.predict_prob(indicators, market_trend=mt)
                 mt_prob = pred.get("prob")
                 mt_prob_thr = pred.get("prob_threshold")
-                mt_weight = pred.get("weight")
+                mt_weight = pred.get("weight") or 0.0
+                pred_sellscore = pred.get("pred_sellscore")
+                sell_threshold = pred.get("sell_threshold")
 
                 # Gate behavior: MT only contributes when confident.
                 # Smooth ramp: below thr => 0; above thr => scaled 0..1
@@ -371,9 +369,11 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             mt_line = f"🧠 MT Brain (regime={mt:+d}): unavailable | 🧮 Deterministic: {rule_norm:.2f}"
         else:
             thr_txt = f"{mt_prob_thr:.2f}" if mt_prob_thr is not None else "n/a"
+            ss_txt = f"{pred_sellscore:.3f}" if pred_sellscore is not None else "n/a"
+            st_txt = f"{sell_threshold:.3f}" if sell_threshold is not None else "n/a"
             mt_line = (
                 f"🧠 MT Brain (regime={mt:+d}): {mt_prob:.2f} (thr={thr_txt}) → gate={mt_gate:.2f} | "
-                f"🧮 Deterministic: {rule_norm:.2f}"
+                f"pred={ss_txt} vs thr={st_txt} | 🧮 Deterministic: {rule_norm:.2f}"
             )
 
         soft_line = "💤 MT softened borderline SELL → HOLD." if mt_softened else ""
@@ -389,8 +389,19 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
         print(f"{color_tag} {ticker}: {signal_label} | SellIndex={sell_index:.2f} | Weak={weak_streak:.1f} | PnL={pnl_pct:+.2f}% | MT={mt:+d}")
 
+        # --- Persist debug fields into tracker (for Discord !list) ---
+        info_state["last_score"] = float(avg_score)
+        info_state["last_sell_index"] = float(sell_index)
+        info_state["last_mt"] = int(mt)
+        info_state["last_mt_prob"] = None if mt_prob is None else float(mt_prob)
+        info_state["last_mt_gate"] = float(mt_gate)
+        info_state["last_mt_prob_thr"] = None if mt_prob_thr is None else float(mt_prob_thr)
+        info_state["last_mt_weight"] = float(mt_weight or 0.0)
+        info_state["last_mt_pred_sellscore"] = None if pred_sellscore is None else float(pred_sellscore)
+        info_state["last_mt_sell_threshold"] = None if sell_threshold is None else float(sell_threshold)
+
         if decision:
-            # now_utc already captured above for tracker fields
+            now_utc = datetime.utcnow()
             info_state["last_alert_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
             sell_alerts.append(
                 f"📈 **[{ticker}] {signal_label}**\n"
