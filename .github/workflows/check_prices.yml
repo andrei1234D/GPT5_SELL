@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Make MT Brain discoverable for both scripts (and local fallback in llm_predict.py)
-      SELL_MODEL_DIR: bot/Brain
+      SELL_MODEL_DIR: Brain
 
     steps:
       - name: Checkout repo (with LFS)
@@ -43,7 +43,7 @@ jobs:
           git lfs install
           git lfs pull
           echo "=== Brain directory ==="
-          ls -lah bot/Brain || true
+          ls -lah Brain || true
 
       - name: Set up Git identity
         run: |

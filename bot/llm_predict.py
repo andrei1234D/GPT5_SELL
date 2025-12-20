@@ -124,10 +124,7 @@ class SellBrain:
 
         # Common repo locations
         candidates.extend([
-            Path("bot/Brain"),
-            Path("SELL_trainer_agent_outputs"),
-            Path("bot/models"),
-            Path("models"),
+            Path("Brain"),
         ])
 
         self.model_dir: Optional[Path] = None
@@ -141,9 +138,9 @@ class SellBrain:
 
         if self.model_dir is None:
             raise FileNotFoundError(
-                "Could not locate model directory. Set SELL_MODEL_DIR or place files in one of: "
-                "bot/Brain / SELL_trainer_agent_outputs / bot/models / models."
-            )
+                    "Could not locate model directory. Set SELL_MODEL_DIR or place files in one of: "
+                    "Brain / bot/Brain / SELL_trainer_agent_outputs / bot/models / models."
+                )
 
         self._models: Dict[int, Any] = {}
         self._meta: Dict[int, Dict[str, Any]] = {}
