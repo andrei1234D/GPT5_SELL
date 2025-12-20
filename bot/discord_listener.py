@@ -159,9 +159,7 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
     data = load_data()
     stocks = data["stocks"]
 
-    # ✅ Fetch FX rate at purchase
     fx_rate = get_fx_usdron()
-
     usd_invested = lei_invested / fx_rate
     shares_bought = usd_invested / price
 
@@ -174,10 +172,8 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         new_shares = old_shares + shares_bought
         new_invested = old_invested + lei_invested
 
-        # ✅ Weighted average stock price (USD) by shares
         avg_price = ((old_price * old_shares) + (price * shares_bought)) / new_shares if new_shares > 0 else price
 
-        # ✅ FX smoothing based on new buy vs total post-buy invested
         weight = (lei_invested / new_invested) if new_invested > 0 else 1.0
         new_fx_smoothed = smooth_fx_toward(old_fx, fx_rate, max(0.0, min(1.0, weight)))
 
@@ -187,10 +183,10 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         stocks[ticker]["fx_rate_buy"] = float(new_fx_smoothed)
     else:
         stocks[ticker] = {
-            "avg_price": float(price),       # in USD
+            "avg_price": float(price),
             "shares": float(shares_bought),
             "invested_lei": float(lei_invested),
-            "fx_rate_buy": float(fx_rate)    # initial FX is today's buy FX
+            "fx_rate_buy": float(fx_rate)
         }
 
     save_data(data)
@@ -218,15 +214,13 @@ async def sell(ctx, ticker: str, price: float, amount: str):
         await ctx.send(f"⚠️ {ticker} is not being tracked.")
         return
 
-    avg_price_usd = float(stocks[ticker]["avg_price"])     # kept for info
-    invested_lei = float(stocks[ticker]["invested_lei"])   # total LEI cost basis (pre-sell)
+    avg_price_usd = float(stocks[ticker]["avg_price"])
+    invested_lei = float(stocks[ticker]["invested_lei"])
     total_shares = float(stocks[ticker]["shares"])
     fx_ref = float(stocks[ticker].get("fx_rate_buy", get_fx_usdron()))
 
-    # ✅ Fetch FX at sell
     fx_sell = get_fx_usdron()
 
-    # Determine shares_sold and lei_proceeds
     if amount.lower() == "all":
         shares_sold = total_shares
         usd_proceeds = shares_sold * price
@@ -240,7 +234,7 @@ async def sell(ctx, ticker: str, price: float, amount: str):
         if lei_proceeds <= 0:
             await ctx.send("⚠️ Amount must be positive.")
             return
-        # Convert LEI proceeds to USD, then to shares to sell (using SELL fx)
+
         usd_proceeds = lei_proceeds / fx_sell
         shares_sold = usd_proceeds / price
 
@@ -248,27 +242,22 @@ async def sell(ctx, ticker: str, price: float, amount: str):
             await ctx.send(f"⚠️ Not enough shares. You have {total_shares:.4f} shares.")
             return
 
-    # 🔢 Proportional LEI cost basis (captures FX at buys)
     share_ratio = shares_sold / total_shares if total_shares > 0 else 0.0
     cost_basis_lei = invested_lei * share_ratio
 
-    # ✅ Realized PnL in LEI (includes FX effect)
     pnl_lei = lei_proceeds - cost_basis_lei
     data["realized_pnl"] += pnl_lei
 
-    # 🧾 Update holdings
     remaining_shares = total_shares - shares_sold
     if remaining_shares <= 1e-9:
-        # sold everything
         del stocks[ticker]
     else:
-        # Smooth FX toward today's sell FX by ratio of cost_basis_lei vs total invested_lei
         weight = (cost_basis_lei / invested_lei) if invested_lei > 0 else 1.0
         new_fx_smoothed = smooth_fx_toward(fx_ref, fx_sell, max(0.0, min(1.0, weight)))
 
         stocks[ticker]["shares"] = float(remaining_shares)
         stocks[ticker]["invested_lei"] = float(invested_lei - cost_basis_lei)
-        stocks[ticker]["avg_price"] = float(avg_price_usd)  # USD avg stays
+        stocks[ticker]["avg_price"] = float(avg_price_usd)
         stocks[ticker]["fx_rate_buy"] = float(new_fx_smoothed)
 
     save_data(data)
@@ -285,9 +274,9 @@ async def sell(ctx, ticker: str, price: float, amount: str):
 
 @bot.command()
 async def list(ctx):
-    """Show all currently tracked stocks with Weak Streak, Score, and PnL summary."""
+    """Show all currently tracked stocks with Weak Streak, Score, and optional MT+SellIndex diagnostics."""
     pull_from_github(DATA_FILE)
-    pull_from_github(TRACKER_FILE)  # ✅ ensure tracker is in sync too
+    pull_from_github(TRACKER_FILE)
 
     data = load_data()
     stocks = data.get("stocks", {})
@@ -305,7 +294,6 @@ async def list(ctx):
     else:
         tracker = {"tickers": {}}
 
-    # --- Fetch latest FX for accurate current valuation ---
     fx_live = get_fx_usdron()
 
     msg_lines = ["**📊 Currently Tracked Stocks:**\n"]
@@ -316,26 +304,37 @@ async def list(ctx):
         avg_price = float(info.get("avg_price", 0))
         shares = float(info.get("shares", 0))
         invested_lei = float(info.get("invested_lei", 0))
-        fx_buy = float(info.get("fx_rate_buy", fx_live))
 
-        # --- Get current market price ---
         try:
             px = yf.Ticker(ticker).history(period="1d")
             current_price = float(px["Close"].iloc[-1]) if not px.empty else avg_price
         except Exception:
             current_price = avg_price
 
-        # --- Calculate unrealized PnL (using live FX) ---
         current_value_lei = current_price * shares * fx_live
         pnl_lei = current_value_lei - invested_lei
         total_unrealized_pnl += pnl_lei
 
-        # --- Tracker info ---
         state = tracker.get("tickers", {}).get(ticker, {})
-        weak_streak = state.get("weak_streak", 0.0)
-        score = state.get("last_score", 0.0)
+        weak_streak = float(state.get("weak_streak", 0.0))
 
-        # --- Risk Level ---
+        # ✅ Score: prefer persisted last_score, else average rolling_scores
+        score = state.get("last_score", None)
+        if score is None:
+            rolling = state.get("rolling_scores", []) or []
+            score = (sum(rolling) / len(rolling)) if rolling else 0.0
+        score = float(score)
+
+        # Optional newer fields from updated decision_engine
+        sell_index = state.get("last_sell_index", None)
+        mt_regime = state.get("last_mt_regime", None)
+        mt_prob = state.get("last_mt_prob", None)
+        mt_thr = state.get("last_mt_prob_thr", None)
+        mt_gate = state.get("last_mt_gate", None)
+        label = state.get("last_signal_label", None)
+        checked = state.get("last_checked_time", state.get("last_checked_time", None))
+
+        # Risk emoji based on deterministic score (keeps your existing mental model)
         if score < 2.5:
             risk_emoji = "🟢 Stable"
         elif score < 4.5:
@@ -350,13 +349,18 @@ async def list(ctx):
             "weak": weak_streak,
             "score": score,
             "emoji": risk_emoji,
-            "pnl_lei": pnl_lei
+            "pnl_lei": pnl_lei,
+            "sell_index": sell_index,
+            "mt_regime": mt_regime,
+            "mt_prob": mt_prob,
+            "mt_thr": mt_thr,
+            "mt_gate": mt_gate,
+            "label": label,
+            "checked": checked
         })
 
-    # --- Sort by risk level / score ---
     stock_list.sort(key=lambda x: x["score"], reverse=True)
 
-    # --- Compose message ---
     for s in stock_list:
         pnl_sign = "+" if s["pnl_lei"] >= 0 else ""
         msg_lines.append(
@@ -365,21 +369,35 @@ async def list(ctx):
             f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} LEI\n"
         )
 
-    # --- Add PnL totals ---
-    realized_pnl = data.get("realized_pnl", 0.0)
+        # ✅ Extra diagnostics (only if present)
+        if s["sell_index"] is not None:
+            try:
+                msg_lines.append(f"    🧠 SellIndex: {float(s['sell_index']):.2f}\n")
+            except Exception:
+                pass
+
+        if s["mt_regime"] is not None and s["mt_prob"] is not None:
+            thr_txt = f"{float(s['mt_thr']):.2f}" if s["mt_thr"] is not None else "n/a"
+            gate_txt = f"{float(s['mt_gate']):.2f}" if s["mt_gate"] is not None else "n/a"
+            msg_lines.append(
+                f"    📌 MT {int(s['mt_regime']):+d} | prob {float(s['mt_prob']):.2f} (thr {thr_txt}) | gate {gate_txt}\n"
+            )
+
+        if s["label"]:
+            msg_lines.append(f"    🏷️ {s['label']}\n")
+
+        if s["checked"]:
+            msg_lines.append(f"    🕒 {s['checked']}\n")
+
+    realized_pnl = float(data.get("realized_pnl", 0.0))
     pnl_sign_unrealized = "+" if total_unrealized_pnl >= 0 else ""
     pnl_sign_realized = "+" if realized_pnl >= 0 else ""
 
-    msg_lines.append(
-        f"📈 **Unrealized PnL (open positions):** {pnl_sign_unrealized}{total_unrealized_pnl:.2f} LEI"
-    )
-    msg_lines.append(
-        f"💰 **Cumulative Realized PnL:** {pnl_sign_realized}{realized_pnl:.2f} LEI"
-    )
+    msg_lines.append(f"📈 **Unrealized PnL (open positions):** {pnl_sign_unrealized}{total_unrealized_pnl:.2f} LEI")
+    msg_lines.append(f"💰 **Cumulative Realized PnL:** {pnl_sign_realized}{realized_pnl:.2f} LEI")
 
     msg = "\n".join(msg_lines)
 
-    # Split if too long for Discord
     if len(msg) > 1900:
         chunks = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
         for chunk in chunks:
