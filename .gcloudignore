@@ -1,0 +1,30 @@
+# Always ignore git internals
+.git
+.gitignore
+
+# Python cache
+**/__pycache__/
+**/*.pyc
+
+# Big ML artifacts
+**/*.joblib
+**/*.joblib.bak
+**/*.pkl
+**/*.pt
+**/*.pth
+**/*.onnx
+
+# Your training outputs (adjust names to your repo)
+SELL_trainer_agent_outputs/**
+**/SELL_trainer_agent_outputs/**
+models/**
+**/models/**
+bot/models/**
+**/bot/models/**
+
+# Large datasets or local caches (if any)
+**/*.parquet
+**/*.csv
+**/*.zip
+**/*.tar
+**/*.gz

@@ -71,12 +71,13 @@ class SellBrain:
             candidates.append(Path(model_dir))
 
         # common repo/colab locations (safe to try)
-        candidates.extend([
+        candidates = [
+            Path(os.getenv("SELL_MODEL_DIR", "")),
+            Path("bot/Brain"),          # <-- add this
             Path("SELL_trainer_agent_outputs"),
             Path("bot/models"),
             Path("models"),
-            Path("/content/drive/MyDrive/SELL_trainer_agent_outputs"),
-        ])
+        ]
 
         self.model_dir = None
         for c in candidates:

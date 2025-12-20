@@ -1,0 +1,137 @@
+{
+  "schema_version": 3,
+  "created_utc": "2025-12-19T11:21:45.468826+00:00",
+  "seed": 42,
+  "regime": 1,
+  "model_type": "ET",
+  "feature_columns": [
+    "Volatility_30D",
+    "Volatility_252D",
+    "High_52W",
+    "Low_52W",
+    "High_30D",
+    "Low_30D",
+    "Momentum_63D",
+    "Momentum_126D",
+    "Momentum_252D",
+    "SMC",
+    "ABS",
+    "VAM",
+    "RSE",
+    "SMA_Slope_3M",
+    "Ret_1D",
+    "Ret_5D",
+    "pos_52w",
+    "pos_30d",
+    "Volume_SMA20",
+    "Momentum_63D_cs_z",
+    "Momentum_63D_cs_rank",
+    "Momentum_252D_cs_z",
+    "Volatility_252D_cs_rank",
+    "RSE_cs_z",
+    "RSE_cs_rank",
+    "CBP_cs_rank",
+    "SMC_cs_rank",
+    "TSS_cs_rank",
+    "VAM_cs_z",
+    "VAM_cs_rank",
+    "ABS_cs_z",
+    "ABS_cs_rank",
+    "AMT_cs_z",
+    "AMT_cs_rank",
+    "pos_52w_cs_z",
+    "pos_52w_cs_rank",
+    "pos_30d_cs_z",
+    "pos_30d_cs_rank",
+    "Ret_1D_cs_z",
+    "Ret_1D_cs_rank",
+    "Ret_5D_cs_rank",
+    "avg_close_past_3_days",
+    "avg_volatility_30D",
+    "current_price"
+  ],
+  "val_metrics": {
+    "ndcg@k": 0.34080782769741175,
+    "spearman": 0.21053849088000037,
+    "n_groups": 298
+  },
+  "params": {
+    "max_features": "sqrt",
+    "max_depth": 16,
+    "min_samples_split": 10,
+    "min_samples_leaf": 4,
+    "bootstrap": true,
+    "n_jobs": -1,
+    "max_trees": 600,
+    "step_trees": 50
+  },
+  "sell_signal": {
+    "definition": "good_sell := (SellScore >= sell_threshold)",
+    "sell_threshold": 0.31561970114707955,
+    "prob_threshold": 0.65,
+    "calibration_diag": {
+      "sell_threshold": 0.31561970114707955,
+      "prob_threshold": 0.65,
+      "base_rate": 0.10000003323916677,
+      "auc": 0.7555347672716465,
+      "brier": 0.19703153917245508,
+      "precision@thr": 0.2661791028659947,
+      "recall@thr": 0.4260794415821838,
+      "f1@thr": 0.32766209798217855
+    }
+  },
+  "pred_mesh": {
+    "val_pred": {
+      "n": 369569,
+      "min": 0.0563948589173237,
+      "max": 0.37295976180270946,
+      "mean": 0.12431155772223004,
+      "std": 0.04200901199485041,
+      "quantiles": {
+        "p00": 0.0563948589173237,
+        "p01": 0.06442476485377704,
+        "p05": 0.071801535361406,
+        "p10": 0.07739801414240137,
+        "p25": 0.09104403157172686,
+        "p50": 0.11458660616641443,
+        "p75": 0.1514236476078903,
+        "p90": 0.1865615869739563,
+        "p95": 0.20499962704718405,
+        "p99": 0.23598755332230836,
+        "p100": 0.37295976180270946
+      },
+      "hist": {
+        "bins": 10,
+        "edges_0_1": [
+          0.0,
+          0.1,
+          0.2,
+          0.30000000000000004,
+          0.4,
+          0.5,
+          0.6000000000000001,
+          0.7000000000000001,
+          0.8,
+          0.9,
+          1.0
+        ],
+        "counts": [
+          129881,
+          217048,
+          22571,
+          69,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  },
+  "artifacts": {
+    "joblib": "best_model_MT1.joblib",
+    "json": "best_model_MT1.json"
+  }
+}

@@ -67,9 +67,17 @@ jobs:
       # 🤖 LLM Prediction Stage
       # -------------------------
       - name: Run LLM predictions
+        env:
+          SELL_MODEL_DIR: bot/Brain
         run: |
-          echo "🧠 Running LLM SELL probability model..."
           python bot/llm_predict.py || true
+
+      - name: Run price check + sell logic
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SELL_MODEL_DIR: bot/Brain
+        run: |
+          python bot/decision_engine.py || true
 
       # -------------------------
       # 💼 Main Decision Engine
