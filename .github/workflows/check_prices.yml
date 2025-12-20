@@ -22,17 +22,18 @@ on:
     # 5️⃣ End-of-day summary (4:30 PM ET)
     - cron: '30 21 * * 1-5' # 04:30 PM ET / 21:30 UTC
 
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch: {}
 
 jobs:
   check-prices:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0 # fetch full history so commits work
+          fetch-depth: 0
 
       - name: Set up Git identity
         run: |
@@ -43,6 +44,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+
       - name: Cache Python packages
         uses: actions/cache@v3
         with:
@@ -50,62 +52,73 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
+
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
       # -------------------------
-      # 🧠 LLM Dataset Builder
+      # 🧠 Dataset Builder (Yahoo Finance)
       # -------------------------
-      - name: Build LLM dataset (live Yahoo Finance)
+      - name: Build ML dataset (live Yahoo Finance)
         run: |
-          echo "📊 Building fresh LLM dataset..."
-          python bot/LLM_data/input_llm/prepare_llm_dataset.py || true
+          echo "📊 Building fresh ML dataset..."
+          python bot/LLM_data/input_llm/prepare_llm_dataset.py
 
       # -------------------------
-      # 🤖 LLM Prediction Stage
+      # 🤖 MT Brain Prediction Stage (writes llm_predictions.csv)
       # -------------------------
-      - name: Run LLM predictions
+      - name: Run MT brain predictions
         env:
           SELL_MODEL_DIR: bot/Brain
         run: |
-          python bot/llm_predict.py || true
-
-      - name: Run price check + sell logic
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          SELL_MODEL_DIR: bot/Brain
-        run: |
-          python bot/decision_engine.py || true
+          echo "🧠 Running MT brain predictions..."
+          python bot/llm_predict.py
 
       # -------------------------
-      # 💼 Main Decision Engine
+      # 🔎 Debug outputs (helps diagnose missing files)
       # -------------------------
-      # -------------------------
-      # 💾 Commit LLM predictions
-      # -------------------------
-      - name: Commit and push LLM prediction results
+      - name: Debug outputs
         run: |
-          echo "💾 Committing latest LLM SELL probabilities..."
-          git add bot/LLM_data/input_llm/llm_predictions.csv || true
+          echo "=== bot/LLM_data/input_llm ==="
+          ls -lah bot/LLM_data/input_llm || true
+          echo "=== bot/Brain ==="
+          ls -lah bot/Brain || true
+          echo "=== git status ==="
+          git status --porcelain || true
+
+      # -------------------------
+      # 💾 Commit dataset + predictions (if changed)
+      # -------------------------
+      - name: Commit and push ML dataset + predictions
+        run: |
+          echo "💾 Committing latest ML dataset + predictions..."
           git add bot/LLM_data/input_llm/llm_input_latest.csv || true
-          git commit -m "🤖 Update LLM predictions [$(date -u '+%Y-%m-%d %H:%M:%S UTC')]" || echo "⚠️ Nothing to commit"
+          git add bot/LLM_data/input_llm/llm_predictions.csv || true
+
+          git commit -m "🤖 Update ML dataset + MT predictions [$(date -u '+%Y-%m-%d %H:%M:%S UTC')]" \
+            || echo "⚠️ Nothing to commit"
+
           git pull --rebase
           git push
 
+      # -------------------------
+      # 💼 Main Decision Engine (Deterministic + MT Gate)
+      # -------------------------
       - name: Run price check + sell logic
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SELL_MODEL_DIR: bot/Brain
         run: |
           echo "🕐 Running GPT-5 Sell Signal Engine..."
           HOUR=$(date -u +%H)
           if [ "$HOUR" = "22" ]; then
             echo "🌇 End-of-day summary run..."
-            python bot/decision_engine.py --endofday || true
+            python bot/decision_engine.py --endofday
           else
-            echo "⏰ Hourly monitoring run (silent unless sell triggered)..."
-            python bot/decision_engine.py || true
+            echo "⏰ Monitoring run (silent unless sell triggered)..."
+            python bot/decision_engine.py
           fi
 
   # Optional test notification job
