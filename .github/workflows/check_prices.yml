@@ -38,6 +38,12 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           lfs: true
+      - name: Pull Git LFS files
+        run: |
+          git lfs install
+          git lfs pull
+          echo "=== Brain directory ==="
+          ls -lah bot/Brain || true
 
       - name: Set up Git identity
         run: |
