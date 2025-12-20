@@ -138,10 +138,9 @@ class SellBrain:
 
         if self.model_dir is None:
             raise FileNotFoundError(
-                    "Could not locate model directory. Set SELL_MODEL_DIR or place files in one of: "
-                    "Brain / bot/Brain / SELL_trainer_agent_outputs / bot/models / models."
-                )
-
+                "Could not locate model directory. Set SELL_MODEL_DIR or place files in one of: "
+                "Brain"
+            )
         self._models: Dict[int, Any] = {}
         self._meta: Dict[int, Dict[str, Any]] = {}
 
