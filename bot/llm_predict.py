@@ -11,11 +11,17 @@ Optional (recommended) sidecar metadata JSONs:
 
 If JSONs are missing, the brain will still run, but gating thresholds may fall back to defaults.
 
+Model directory resolution (in order):
+  1) explicit `model_dir` argument
+  2) env var `SELL_MODEL_DIR` (recommended for CI / GitHub Actions / containers)
+  3) common container path `/brain`
+  4) local repo fallback `Brain/`
+
 Primary API used by decision_engine.py:
 
   SellBrain.predict_prob(indicators: dict, market_trend: int) -> dict
 
-Optional CLI utility (used by GitHub Actions if you want):
+Optional CLI utility:
   python bot/llm_predict.py
     - reads:  bot/LLM_data/input_llm/llm_input_latest.csv
     - writes: bot/LLM_data/input_llm/llm_predictions.csv
@@ -93,13 +99,35 @@ def _expected_json_name(regime: int) -> str:
 
 
 def _looks_like_model_dir(p: Path) -> bool:
+    """
+    Lightweight sanity check to avoid accidentally picking '.' or unrelated directories.
+    Require that *all three* expected joblib files are present.
+    """
     if not p.exists() or not p.is_dir():
         return False
-    # Require at least one expected file so we don't accidentally accept "." or unrelated dirs.
-    for r in (-1, 0, 1):
-        if (p / _expected_joblib_name(r)).exists():
-            return True
-    return False
+    required = [_expected_joblib_name(r) for r in (-1, 0, 1)]
+    return all((p / f).exists() for f in required)
+
+
+def _dedupe_paths(paths: list[Path]) -> list[Path]:
+    """
+    De-duplicate candidate directories while preserving order.
+    Uses absolute paths where possible but does not require existence.
+    """
+    out: list[Path] = []
+    seen: set[str] = set()
+    for p in paths:
+        if str(p).strip() in ("", "."):
+            continue
+        try:
+            key = str(p.expanduser().resolve())
+        except Exception:
+            key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
 
 
 # -------------------------
@@ -111,7 +139,8 @@ class SellBrain:
         model_dir resolution order:
           1) explicit model_dir argument
           2) env SELL_MODEL_DIR
-          3) common repo locations
+          3) /brain (common container path)
+          4) Brain (local repo fallback)
         """
         candidates: list[Path] = []
 
@@ -122,25 +151,30 @@ class SellBrain:
         if env_dir:
             candidates.append(Path(env_dir))
 
-        # Common repo locations
-        candidates.extend([
-            Path("Brain"),
-        ])
+        # Common container path (matches your earlier /brain paths)
+        candidates.append(Path("/brain"))
+
+        # Local repo fallback
+        candidates.append(Path("Brain"))
+
+        candidates = _dedupe_paths(candidates)
 
         self.model_dir: Optional[Path] = None
         for c in candidates:
-            # Skip empty strings which become "."
-            if str(c).strip() in ("", "."):
-                continue
             if _looks_like_model_dir(c):
                 self.model_dir = c
                 break
 
         if self.model_dir is None:
             raise FileNotFoundError(
-                "Could not locate model directory. Set SELL_MODEL_DIR or place files in one of: "
-                "Brain"
+                "Could not locate model directory. Provide --model_dir or set SELL_MODEL_DIR. "
+                "Expected to find the 3 files: "
+                "best_model_MT-1.joblib, best_model_MT0.joblib, best_model_MT1.joblib"
             )
+
+        # Helpful for CI logs
+        print(f"[SellBrain] Using model_dir: {self.model_dir}")
+
         self._models: Dict[int, Any] = {}
         self._meta: Dict[int, Dict[str, Any]] = {}
 

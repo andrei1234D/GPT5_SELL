@@ -2,48 +2,74 @@ name: Daily GPT-5 Stock Sell Alert
 
 permissions:
   contents: write
+  id-token: write
 
 on:
-  # GitHub Actions works in UTC
   schedule:
-    # 1️⃣ After-hours / overnight (every 1h 30m)
-    - cron: '0 22-23,0-12/1 * * 1-5' # 10 PM – 8 AM UTC (~5 PM–4 AM ET)
-    - cron: '30 0-12/1 * * 1-5' # +30 min offset for ~1.5h interval
-
-    # 2️⃣ Pre-market (8:30 AM ET)
-    - cron: '30 13 * * 1-5' # 08:30 AM ET / 13:30 UTC
-
-    # 3️⃣ Market open → noon: every 30 minutes
-    - cron: '0,30 14-16 * * 1-5' # 09:00–11:59 AM ET
-
-    # 4️⃣ Midday → close: every 45 minutes
-    - cron: '0,45 17-20 * * 1-5' # 12:00–03:59 PM ET
-
-    # 5️⃣ End-of-day summary (4:30 PM ET)
-    - cron: '30 21 * * 1-5' # 04:30 PM ET / 21:30 UTC
-
+    - cron: '0 22-23,0-12/1 * * 1-5'
+    - cron: '30 0-12/1 * * 1-5'
+    - cron: '30 13 * * 1-5'
+    - cron: '0,30 14-16 * * 1-5'
+    - cron: '0,45 17-20 * * 1-5'
+    - cron: '30 21 * * 1-5'
   workflow_dispatch:
 
 jobs:
   check-prices:
     runs-on: ubuntu-latest
     env:
-      # Make MT Brain discoverable for both scripts (and local fallback in llm_predict.py)
-      SELL_MODEL_DIR: Brain
+      MT_MODELS_BUCKET: gpt5-sell-models-balasandrei-20251221
+      MT_MODELS_PREFIX: models
+      MT_MODELS_VERSION: '20251221'
 
     steps:
-      - name: Checkout repo (with LFS)
+      - name: Checkout repo (no LFS)
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-          lfs: true
-      - name: Pull Git LFS files
+          lfs: false
+
+      - name: Set model path env (SELL_MODEL_DIR)
+        shell: bash
         run: |
-          git lfs install
-          git lfs pull
-          echo "=== Brain directory ==="
-          ls -lah Brain || true
+          echo "SELL_MODEL_DIR=${RUNNER_TEMP}/mt_models" >> "$GITHUB_ENV"
+          echo "Using SELL_MODEL_DIR=${RUNNER_TEMP}/mt_models"
+
+      - name: Cache MT models
+        uses: actions/cache@v3
+        with:
+          path: ${{ runner.temp }}/mt_models
+          key: mt-models-${{ env.MT_MODELS_VERSION }}
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Download MT model artifacts from GCS (if not cached)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${SELL_MODEL_DIR}"
+
+          for f in best_model_MT-1.joblib best_model_MT0.joblib best_model_MT1.joblib; do
+            if [ ! -s "${SELL_MODEL_DIR}/${f}" ]; then
+              echo "Downloading ${f}..."
+              gcloud storage cp \
+                "gs://${MT_MODELS_BUCKET}/${MT_MODELS_PREFIX}/${f}" \
+                "${SELL_MODEL_DIR}/${f}"
+            else
+              echo "Already present: ${f}"
+            fi
+          done
+
+          echo "=== Model directory ==="
+          ls -lah "${SELL_MODEL_DIR}"
 
       - name: Set up Git identity
         run: |
@@ -68,42 +94,25 @@ jobs:
           pip install -r requirements.txt
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-      # -------------------------
-      # 🧠 LLM Dataset Builder
-      # -------------------------
       - name: Build MT dataset (live Yahoo Finance)
         run: |
-          echo "📊 Building fresh MT dataset..."
           python bot/LLM_data/input_llm/prepare_llm_dataset.py
 
-      # -------------------------
-      # 🤖 MT Prediction Stage
-      # -------------------------
       - name: Run MT predictions
         run: |
-          echo "🧠 Running MT SELL gate model..."
           python bot/llm_predict.py
 
-      # -------------------------
-      # 💼 Main Decision Engine
-      # -------------------------
       - name: Run price check + sell logic
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          echo "🕐 Running GPT-5 Sell Signal Engine..."
           HOUR=$(date -u +%H)
           if [ "$HOUR" = "22" ]; then
-            echo "🌇 End-of-day summary run..."
             python bot/decision_engine.py --endofday
           else
-            echo "⏰ Monitoring run (silent unless sell triggered)..."
             python bot/decision_engine.py
           fi
 
-      # -------------------------
-      # 💾 Commit outputs (single push)
-      # -------------------------
       - name: Commit and push latest outputs
         run: |
           git add bot/sell_alerts_tracker.json || true
