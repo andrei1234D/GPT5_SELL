@@ -41,6 +41,14 @@ jobs:
         with:
           path: ${{ runner.temp }}/mt_models
           key: mt-models-${{ env.MT_MODELS_VERSION }}
+      - name: Show GitHub context (for WIF condition)
+        shell: bash
+        run: |
+          echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY}"
+          echo "GITHUB_REPOSITORY_OWNER=${GITHUB_REPOSITORY_OWNER}"
+          echo "GITHUB_REF=${GITHUB_REF}"
+          echo "GITHUB_EVENT_NAME=${GITHUB_EVENT_NAME}"
+          echo "GITHUB_ACTOR=${GITHUB_ACTOR}"
 
       - name: Authenticate to Google Cloud (WIF)
         uses: google-github-actions/auth@v2
