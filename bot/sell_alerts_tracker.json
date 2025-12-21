@@ -1,5 +1,5 @@
 {
-  "date": "2025-12-20",
+  "date": "2025-12-21",
   "had_alerts": false,
   "tickers": {
     "M": {
@@ -22,7 +22,7 @@
       "last_pnl_pct": 38.22480159386562,
       "last_rule_norm": 0.15,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.07020125052075503,
+      "last_mt_prob": 0.008193672644622712,
       "last_mt_prob_thr": 0.65,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
@@ -30,8 +30,8 @@
       "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
-      "last_mt_pred_sellscore": 0.10031953116697112,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_pred_sellscore": 0.10031953116697111,
+      "last_mt_sell_threshold": 0.5
     },
     "NVDA": {
       "weak_streak": 0.0,
@@ -54,7 +54,7 @@
       "last_pnl_pct": 0.2554541523752617,
       "last_rule_norm": 0.35,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.07020125052075503,
+      "last_mt_prob": 0.008193672644622712,
       "last_mt_prob_thr": 0.65,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
@@ -63,7 +63,7 @@
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10031953116697111,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.5
     },
     "MU": {
       "weak_streak": 0.0,
@@ -86,7 +86,7 @@
       "last_pnl_pct": 19.78662994627808,
       "last_rule_norm": 0.1,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.07020182430816096,
+      "last_mt_prob": 0.008193744081576283,
       "last_mt_prob_thr": 0.65,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
@@ -95,7 +95,7 @@
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10032026371198835,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.5
     },
     "LRCX": {
       "weak_streak": 28.0,
@@ -137,7 +137,7 @@
       "last_pnl_pct": -3.8829578718434203,
       "last_rule_norm": 0.2857142857142857,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.07020182430816096,
+      "last_mt_prob": 0.008193744081576283,
       "last_mt_prob_thr": 0.65,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
@@ -146,7 +146,7 @@
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10032026371198835,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.5
     },
     "III.TO": {
       "weak_streak": 0.0,
@@ -168,7 +168,7 @@
       "last_pnl_pct": 31.239626294190487,
       "last_rule_norm": 0.15,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.07020909671623983,
+      "last_mt_prob": 0.008194649508473439,
       "last_mt_prob_thr": 0.65,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
@@ -177,7 +177,7 @@
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10032954779705626,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.5
     },
     "KEP": {
       "weak_streak": 0.0,
@@ -200,7 +200,7 @@
       "last_pnl_pct": 2.004819647355859,
       "last_rule_norm": 0.25,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.07020909671623983,
+      "last_mt_prob": 0.008194649508473439,
       "last_mt_prob_thr": 0.65,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
@@ -209,7 +209,7 @@
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10032954779705626,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.5
     },
     "JFU": {
       "weak_streak": 0.0,
@@ -231,7 +231,7 @@
       "last_score": 0.0,
       "last_rule_norm": 0.0,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.07020909671623983,
+      "last_mt_prob": 0.008194649508473439,
       "last_mt_prob_thr": 0.65,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
@@ -240,7 +240,7 @@
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10032954779705626,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.5
     }
   }
 }
