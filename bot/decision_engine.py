@@ -1,6 +1,5 @@
 import argparse
 import json
-from pathlib import Path
 import os
 import subprocess
 from datetime import datetime
@@ -475,41 +474,83 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False) -> No
         mt = infer_market_trend(indicators)
 
         # --- MT Brain probability (uses best model for that regime) ---
-        pred = None
         mt_prob = None
         mt_gate = 0.0
         mt_prob_thr = None
         mt_weight = 0.0
         pred_sellscore = None
         sell_threshold = None
-        mt_sell_signal = False
 
         if sell_brain:
             try:
-                pred = sell_brain.predict(indicators, market_trend=mt)  # SellBrain API
-                if isinstance(pred, dict):
-                    mt_prob = pred.get("mt_prob", pred.get("prob"))
-                    mt_prob_thr = pred.get("mt_prob_threshold", pred.get("prob_threshold"))
-                    mt_weight = float(pred.get("mt_weight", pred.get("weight") or 0.0) or 0.0)
-                    pred_sellscore = pred.get("pred_sellscore")
-                    sell_threshold = pred.get("sell_threshold")
-                    mt_sell_signal = bool(pred.get("mt_sell_signal", False))
+                pred = sell_brain.predict_prob(indicators, market_trend=mt)  # must accept dict-like features
+                mt_prob = pred.get("prob")
+                mt_prob_thr = pred.get("prob_threshold")
+                mt_weight = float(pred.get("weight") or 0.0)
+                pred_sellscore = pred.get("pred_sellscore")
+                sell_threshold = pred.get("sell_threshold")
 
-                    # Prefer brain-provided gate; else compute a smooth ramp above threshold.
-                    if pred.get("mt_gate") is not None:
-                        mt_gate = float(pred.get("mt_gate") or 0.0)
-                    elif (mt_prob is not None) and (mt_prob_thr is not None) and (0.0 <= float(mt_prob_thr) < 1.0):
-                        mp = float(mt_prob)
-                        pt = float(mt_prob_thr)
-                        if mp <= pt:
-                            mt_gate = 0.0
-                        else:
-                            mt_gate = (mp - pt) / (1.0 - pt)
-                            mt_gate = max(0.0, min(mt_gate, 1.0))
+                # Gate behavior: MT only contributes when confident.
+                # Smooth ramp: below thr => 0; above thr => scaled 0..1
+                if (mt_prob is not None) and (mt_prob_thr is not None) and (0.0 <= float(mt_prob_thr) < 1.0):
+                    mp = float(mt_prob)
+                    pt = float(mt_prob_thr)
+                    if mp <= pt:
+                        mt_gate = 0.0
+                    else:
+                        mt_gate = (mp - pt) / (1.0 - pt)
+                        mt_gate = max(0.0, min(mt_gate, 1.0))
             except Exception as e:
                 print(f"[WARN] MT prediction failed for {ticker}: {e}")
 
-# --- Fusion logic ---
+        
+        # --- ML trace (verification) ---
+        # This is for confirming that the ML path is wired correctly:
+        #   indicators -> regime -> model -> pred_sellscore -> calibrator prob -> gate.
+        mt_sell_signal = bool((mt_prob is not None) and (mt_prob_thr is not None) and (mt_prob >= mt_prob_thr))
+
+        ml_trace = {
+            "ts_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "ticker": ticker,
+            "market_trend": int(mt),
+            "current_price": _safe_float(current_price),
+            "pnl_pct": _safe_float(pnl_pct),
+
+            "mt_prob": _safe_float(mt_prob),
+            "mt_prob_threshold": _safe_float(mt_prob_thr),
+            "mt_gate": _safe_float(mt_gate),
+            "mt_weight": _safe_float(mt_weight),
+
+            "pred_sellscore": _safe_float(pred_sellscore),
+            "sell_threshold": _safe_float(sell_threshold),
+            "model_type": pred.get("model_type") if isinstance(pred, dict) else None,
+
+            "signal_from_mt": mt_sell_signal,
+        }
+
+        # Optional sanity warnings
+        if (mt_prob is not None) and (mt_prob_thr is not None) and (mt_prob_thr > 0.0) and (mt_prob_thr < 1.0):
+            # Gate should be 0 when prob <= thr
+            if (mt_prob <= mt_prob_thr) and (mt_gate and mt_gate > 1e-9):
+                print(f"[WARN][{ticker}] MT gate is non-zero while prob<=thr (prob={mt_prob:.4f} thr={mt_prob_thr:.4f} gate={mt_gate:.4f})")
+            # Gate should be in [0,1]
+            if (mt_gate is not None) and (mt_gate < -1e-6 or mt_gate > 1.0 + 1e-6):
+                print(f"[WARN][{ticker}] MT gate out of range: {mt_gate}")
+
+        if ML_DEBUG:
+            # Print one-line JSON for grepping in logs
+            try:
+                print("[MLTRACE] " + json.dumps(ml_trace, ensure_ascii=False, default=str))
+            except Exception:
+                print(f"[MLTRACE] {ml_trace}")
+
+        # Always dump to daily CSV (cheap; helps verify after the run)
+        try:
+            append_ml_trace(ml_trace)
+        except Exception:
+            pass
+
+        # --- Fusion logic ---
         rule_norm = min(1.0, float(avg_score) / 10.0)
 
         # Weights: regime-specific MT weight (replaces the old LLM weight)
@@ -570,18 +611,6 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False) -> No
             f"PnL={pnl_pct:+.2f}% | MT={mt:+d} | ccy={ccy} fx={fx_to_lei:.3f}"
         )
 
-        # --- ML trace (console) ---
-        if mt_prob is None:
-            print(f"🤖 [ML] {ticker}: unavailable (regime={mt:+d})")
-        else:
-            _thr_txt = f"{float(mt_prob_thr):.2f}" if mt_prob_thr is not None else "n/a"
-            _ps_txt = f"{float(pred_sellscore):.3f}" if pred_sellscore is not None else "n/a"
-            _st_txt = f"{float(sell_threshold):.3f}" if sell_threshold is not None else "n/a"
-            print(
-                f"🤖 [ML] {ticker}: P={float(mt_prob):.3f} thr={_thr_txt} gate={mt_gate:.2f} w={float(mt_weight or 0.0):.2f} "
-                f"sell={bool(mt_sell_signal)} | pred_score={_ps_txt} vs sell_thr={_st_txt}"
-            )
-
         # --- Persist debug fields into tracker ---
         info_state["last_score"] = float(avg_score)
         info_state["last_sell_index"] = float(sell_index)
@@ -592,7 +621,6 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False) -> No
         info_state["last_mt_weight"] = float(mt_weight or 0.0)
         info_state["last_mt_pred_sellscore"] = None if pred_sellscore is None else float(pred_sellscore)
         info_state["last_mt_sell_threshold"] = None if sell_threshold is None else float(sell_threshold)
-        info_state["last_mt_sell_signal"] = bool(mt_sell_signal)
         info_state["last_currency"] = ccy
         info_state["last_fx_to_lei"] = float(fx_to_lei)
 
@@ -616,30 +644,6 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False) -> No
             sell_alerts.append(f"[{ticker}] {reasoning}")
 
         tracker["tickers"][ticker] = info_state
-
-        # --- Persist per-ticker ML trace for offline debugging ---
-        try:
-            append_ml_trace({
-                "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "ticker": ticker,
-                "market_trend": int(mt),
-                "current_price": float(current_price),
-                "pnl_pct": float(pnl_pct),
-                "mt_prob": None if mt_prob is None else float(mt_prob),
-                "mt_prob_threshold": None if mt_prob_thr is None else float(mt_prob_thr),
-                "mt_sell_signal": bool(mt_sell_signal),
-                "mt_gate": float(mt_gate),
-                "mt_weight": float(mt_weight or 0.0),
-                "pred_sellscore": None if pred_sellscore is None else float(pred_sellscore),
-                "sell_threshold": None if sell_threshold is None else float(sell_threshold),
-                "model_type": (pred.get("model_type") if isinstance(pred, dict) else None),
-                "avg_price": float(avg_price),
-                "shares": float(shares),
-                "invested_lei": float(invested_lei),
-            })
-        except Exception as e:
-            print(f"[WARN] Failed to append ML trace for {ticker}: {e}")
-
 
     save_tracker(tracker)
 
