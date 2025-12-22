@@ -15,7 +15,7 @@ Model directory resolution (in order):
   1) explicit `model_dir` argument
   2) env var `SELL_MODEL_DIR` (recommended for CI / GitHub Actions / containers)
   3) common container path `/brain`
-  4) local repo fallback `Brain/`
+  4) local fallback `../Brain`   <-- NOTE: assumes running from bot/
 
 Primary API used by decision_engine.py:
 
@@ -140,7 +140,7 @@ class SellBrain:
           1) explicit model_dir argument
           2) env SELL_MODEL_DIR
           3) /brain (common container path)
-          4) Brain (local repo fallback)
+          4) ../Brain (local fallback; assumes running from bot/)
         """
         candidates: list[Path] = []
 
@@ -154,8 +154,8 @@ class SellBrain:
         # Common container path (matches your earlier /brain paths)
         candidates.append(Path("/brain"))
 
-        # Local repo fallback
-        candidates.append(Path("Brain"))
+        # Local repo fallback (HARD PATH: assumes CWD is bot/)
+        candidates.append(Path("../Brain"))
 
         candidates = _dedupe_paths(candidates)
 
