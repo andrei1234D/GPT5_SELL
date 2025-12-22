@@ -6,25 +6,29 @@ MT (MarketTrend) "brain" for production. Loads your 3 best models:
   - best_model_MT0.joblib  (neutral)
   - best_model_MT1.joblib  (bull)
 
-Optional (recommended) sidecar metadata JSONs:
+Sidecar metadata JSONs:
   - best_model_MT-1.json / best_model_MT0.json / best_model_MT1.json
 
-If JSONs are missing, the brain will still run, but gating thresholds may fall back to defaults.
+This version supports a common CI layout:
+  - Joblibs are downloaded into SELL_MODEL_DIR (runner temp)
+  - JSONs remain in the checked-out repo under Brain/
 
-Model directory resolution (in order):
+Model directory resolution (joblibs):
   1) explicit `model_dir` argument
-  2) env var `SELL_MODEL_DIR` (recommended for CI / GitHub Actions / containers)
+  2) env var `SELL_MODEL_DIR`
   3) common container path `/brain`
-  4) local fallback `../Brain`   <-- NOTE: assumes running from bot/
+  4) local fallback `Brain`
+  5) local fallback `../Brain`
+
+JSON directory resolution (sidecars):
+  1) env var `SELL_META_DIR` (optional)
+  2) repo-root Brain derived from this file location: <repo>/Brain
+  3) `Brain` (cwd-relative)
+  4) `../Brain` (cwd-relative)
+  5) model_dir (last resort, if jsons were downloaded alongside joblibs)
 
 Primary API used by decision_engine.py:
-
   SellBrain.predict_prob(indicators: dict, market_trend: int) -> dict
-
-Optional CLI utility:
-  python bot/llm_predict.py
-    - reads:  bot/LLM_data/input_llm/llm_input_latest.csv
-    - writes: bot/LLM_data/input_llm/llm_predictions.csv
 """
 
 from __future__ import annotations
@@ -66,8 +70,7 @@ def _infer_prob_from_regressor(pred: float, sell_threshold: float) -> float:
     pred = float(pred)
     sell_threshold = float(sell_threshold)
 
-    # Higher k => more "decisive" (more step-like)
-    k = 12.0
+    k = 12.0  # Higher k => more "decisive" (more step-like)
     x = pred - sell_threshold
     prob = 1.0 / (1.0 + np.exp(-k * x))
     return float(prob)
@@ -98,26 +101,28 @@ def _expected_json_name(regime: int) -> str:
     return f"best_model_MT{regime}.json" if regime != 0 else "best_model_MT0.json"
 
 
-def _looks_like_model_dir(p: Path) -> bool:
-    """
-    Lightweight sanity check to avoid accidentally picking '.' or unrelated directories.
-    Require that *all three* expected joblib files are present.
-    """
+def _looks_like_joblib_dir(p: Path) -> bool:
+    """Require all three joblibs."""
     if not p.exists() or not p.is_dir():
         return False
     required = [_expected_joblib_name(r) for r in (-1, 0, 1)]
     return all((p / f).exists() for f in required)
 
 
+def _looks_like_meta_dir(p: Path) -> bool:
+    """Require all three JSON sidecars."""
+    if not p.exists() or not p.is_dir():
+        return False
+    required = [_expected_json_name(r) for r in (-1, 0, 1)]
+    return all((p / f).exists() for f in required)
+
+
 def _dedupe_paths(paths: list[Path]) -> list[Path]:
-    """
-    De-duplicate candidate directories while preserving order.
-    Uses absolute paths where possible but does not require existence.
-    """
     out: list[Path] = []
     seen: set[str] = set()
     for p in paths:
-        if str(p).strip() in ("", "."):
+        s = str(p).strip()
+        if s in ("", "."):
             continue
         try:
             key = str(p.expanduser().resolve())
@@ -136,44 +141,72 @@ def _dedupe_paths(paths: list[Path]) -> list[Path]:
 class SellBrain:
     def __init__(self, model_dir: Optional[str | Path] = None):
         """
-        model_dir resolution order:
-          1) explicit model_dir argument
-          2) env SELL_MODEL_DIR
-          3) /brain (common container path)
-          4) ../Brain (local fallback; assumes running from bot/)
+        model_dir: where joblib files live.
+        meta_dir: where JSON sidecars live (auto-resolved to repo Brain by default).
         """
-        candidates: list[Path] = []
+        # -------- resolve joblib dir --------
+        joblib_candidates: list[Path] = []
 
         if model_dir is not None:
-            candidates.append(Path(model_dir))
+            joblib_candidates.append(Path(model_dir))
 
         env_dir = os.getenv("SELL_MODEL_DIR", "").strip()
         if env_dir:
-            candidates.append(Path(env_dir))
+            joblib_candidates.append(Path(env_dir))
 
-        # Common container path (matches your earlier /brain paths)
-        candidates.append(Path("/brain"))
+        joblib_candidates.append(Path("/brain"))
+        joblib_candidates.append(Path("Brain"))
+        joblib_candidates.append(Path("../Brain"))
 
-        # Local repo fallback (HARD PATH: assumes CWD is bot/)
-        candidates.append(Path("../Brain"))
-
-        candidates = _dedupe_paths(candidates)
+        joblib_candidates = _dedupe_paths(joblib_candidates)
 
         self.model_dir: Optional[Path] = None
-        for c in candidates:
-            if _looks_like_model_dir(c):
+        for c in joblib_candidates:
+            if _looks_like_joblib_dir(c):
                 self.model_dir = c
                 break
 
         if self.model_dir is None:
             raise FileNotFoundError(
-                "Could not locate model directory. Provide --model_dir or set SELL_MODEL_DIR. "
-                "Expected to find the 3 files: "
-                "best_model_MT-1.joblib, best_model_MT0.joblib, best_model_MT1.joblib"
+                "Could not locate joblib model directory. Provide --model_dir or set SELL_MODEL_DIR. "
+                "Expected joblibs: best_model_MT-1.joblib, best_model_MT0.joblib, best_model_MT1.joblib"
             )
 
-        # Helpful for CI logs
-        print(f"[SellBrain] Using model_dir: {self.model_dir}")
+        # -------- resolve meta dir (JSONs) --------
+        meta_candidates: list[Path] = []
+
+        env_meta = os.getenv("SELL_META_DIR", "").strip()
+        if env_meta:
+            meta_candidates.append(Path(env_meta))
+
+        # Repo-local Brain (derived from file location; works in GitHub Actions)
+        try:
+            repo_root = Path(__file__).resolve().parents[1]  # bot/llm_predict.py -> repo root
+            meta_candidates.append(repo_root / "Brain")
+        except Exception:
+            pass
+
+        meta_candidates.append(Path("Brain"))
+        meta_candidates.append(Path("../Brain"))
+        meta_candidates.append(self.model_dir)  # last resort
+
+        meta_candidates = _dedupe_paths(meta_candidates)
+
+        self.meta_dir: Optional[Path] = None
+        for c in meta_candidates:
+            if _looks_like_meta_dir(c):
+                self.meta_dir = c
+                break
+
+        if self.meta_dir is None:
+            raise FileNotFoundError(
+                "Could not locate JSON meta directory (sidecars). "
+                "Either download JSONs alongside joblibs, set SELL_META_DIR, or ensure repo has Brain/*.json.\n"
+                "Expected jsons: best_model_MT-1.json, best_model_MT0.json, best_model_MT1.json"
+            )
+
+        print(f"[SellBrain] Using model_dir (joblibs): {self.model_dir}")
+        print(f"[SellBrain] Using meta_dir  (jsons):  {self.meta_dir}")
 
         self._models: Dict[int, Any] = {}
         self._meta: Dict[int, Dict[str, Any]] = {}
@@ -181,32 +214,33 @@ class SellBrain:
         for regime in (-1, 0, 1):
             self._load_regime(regime)
 
-        # Regime-specific weights (as agreed)
         self._weight_by_regime = {-1: 0.40, 0: 0.20, 1: 0.30}
-
-        # Default gating probability threshold (json may override)
         self._default_prob_thr = 0.65
 
         # If MT0 is missing sell_signal, synthesize it as mean of -1 and 1 thresholds
         self._ensure_mt0_sell_signal()
 
+        # CI visibility: print loaded thresholds
+        for r in (-1, 0, 1):
+            ss = self._meta.get(r, {}).get("sell_signal") or {}
+            print(f"[SellBrain] regime={r} sell_threshold={ss.get('sell_threshold')} prob_threshold={ss.get('prob_threshold')}")
+
     def _load_regime(self, regime: int):
         job = self.model_dir / _expected_joblib_name(regime)
-        js = self.model_dir / _expected_json_name(regime)
+        js = self.meta_dir / _expected_json_name(regime)
 
         if not job.exists():
             raise FileNotFoundError(f"Missing model file: {job}")
+        if not js.exists():
+            raise FileNotFoundError(f"Missing meta JSON: {js}")
 
         payload = load(job)
 
-        # Meta JSON is recommended but optional.
-        meta: Dict[str, Any] = {}
-        if js.exists():
-            try:
-                with open(js, "r", encoding="utf-8") as f:
-                    meta = json.load(f)
-            except Exception:
-                meta = {}
+        try:
+            with open(js, "r", encoding="utf-8") as f:
+                meta: Dict[str, Any] = json.load(f)
+        except Exception as e:
+            raise RuntimeError(f"Failed to parse JSON meta: {js} ({type(e).__name__}: {e})")
 
         # If meta doesn't have feature_columns, attempt to recover from payload.
         if not meta.get("feature_columns") and isinstance(payload, dict):
@@ -218,6 +252,11 @@ class SellBrain:
         meta.setdefault("regime", int(regime))
         if isinstance(payload, dict):
             meta.setdefault("model_type", payload.get("model_type"))
+
+        # Validate sell_signal presence (prevents silent fallback to 0.5)
+        ss = meta.get("sell_signal")
+        if not isinstance(ss, dict) or _safe_float(ss.get("sell_threshold")) is None:
+            raise ValueError(f"JSON missing sell_signal.sell_threshold for regime={regime}: {js}")
 
         self._models[regime] = payload
         self._meta[regime] = meta
@@ -234,7 +273,6 @@ class SellBrain:
         thr_pos = _safe_float((m_pos.get("sell_signal") or {}).get("sell_threshold"))
 
         if thr_neg is None or thr_pos is None:
-            # If we can't synthesize, leave MT0 without sell_signal (defaults will apply).
             return
 
         mean_thr = 0.5 * (thr_neg + thr_pos)
@@ -256,7 +294,6 @@ class SellBrain:
           - ET payload: pipeline stored as payload["model"] or payload itself if saved that way
         """
         if not isinstance(payload, dict):
-            # If you ever saved bare estimator, support it.
             return float(payload.predict(X_row.reshape(1, -1))[0])
 
         mtype = payload.get("model_type")
@@ -271,12 +308,6 @@ class SellBrain:
         return float(model.predict(X_row.reshape(1, -1))[0])
 
     def predict_prob(self, indicators: Dict[str, Any], market_trend: int = 0) -> Dict[str, Any]:
-        """
-        Predicts a probability-like SELL gate score using the best model for the given regime.
-
-        Requires `indicators` dict to contain the feature columns expected by that regime.
-        Missing features are filled with NaN (imputer inside ET pipeline handles them).
-        """
         regime = int(market_trend)
         if regime not in (-1, 0, 1):
             regime = 0
@@ -297,9 +328,9 @@ class SellBrain:
         row = np.array([_safe_float(indicators.get(c), np.nan) for c in feats], dtype=float)
         pred_sellscore = self._predict_sellscore(payload, row)
 
-        sell_signal = meta.get("sell_signal") if isinstance(meta.get("sell_signal"), dict) else {}
-        sell_thr = _safe_float(sell_signal.get("sell_threshold"), 0.5)
-        prob_thr = _safe_float(sell_signal.get("prob_threshold"), self._default_prob_thr)
+        sell_signal = meta["sell_signal"]
+        sell_thr = float(sell_signal["sell_threshold"])
+        prob_thr = float(_safe_float(sell_signal.get("prob_threshold"), self._default_prob_thr))
 
         prob = _infer_prob_from_regressor(pred_sellscore, sell_threshold=sell_thr)
 
@@ -358,7 +389,6 @@ def run_batch_predictions(
             "Timestamp": row_dict.get("Timestamp"),
         }
 
-        # Preserve a few useful context columns if present
         for k in ("current_price", "pnl_pct", "avg_price", "shares", "invested_lei"):
             if k in row_dict:
                 out[k] = row_dict.get(k)
@@ -367,7 +397,6 @@ def run_batch_predictions(
 
     out_df = pd.DataFrame(out_rows)
 
-    # deterministic, consistent order
     preferred = [
         "Timestamp", "Ticker", "MarketTrend",
         "current_price", "pnl_pct",
