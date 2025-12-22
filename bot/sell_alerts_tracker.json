@@ -30,7 +30,7 @@
       "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
-      "last_mt_pred_sellscore": 0.10031953116697111,
+      "last_mt_pred_sellscore": 0.10031953116697112,
       "last_mt_sell_threshold": 0.5
     },
     "NVDA": {
@@ -208,7 +208,7 @@
       "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
-      "last_mt_pred_sellscore": 0.10032954779705626,
+      "last_mt_pred_sellscore": 0.10032954779705627,
       "last_mt_sell_threshold": 0.5
     },
     "JFU": {
