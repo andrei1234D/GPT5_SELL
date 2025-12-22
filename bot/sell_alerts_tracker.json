@@ -1,5 +1,5 @@
 {
-  "date": "2025-12-21",
+  "date": "2025-12-22",
   "had_alerts": false,
   "tickers": {
     "M": {
@@ -30,7 +30,7 @@
       "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
-      "last_mt_pred_sellscore": 0.10031953116697111,
+      "last_mt_pred_sellscore": 0.10031953116697112,
       "last_mt_sell_threshold": 0.5
     },
     "NVDA": {
