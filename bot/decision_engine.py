@@ -651,25 +651,25 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False) -> No
         git_commit_tracker()
 
 
-# === Send Discord summaries ===
-now_utc = datetime.utcnow()
-if sell_alerts:
-    msg = "🚨 **SELL SIGNALS TRIGGERED** 🚨\n\n" + "\n\n".join(sell_alerts)
-    for chunk in [msg[i:i + 1900] for i in range(0, len(msg), 1900)]:
+    # === Send Discord summaries ===
+    now_utc = datetime.utcnow()
+    if sell_alerts:
+        msg = "🚨 **SELL SIGNALS TRIGGERED** 🚨\n\n" + "\n\n".join(sell_alerts)
+        for chunk in [msg[i:i + 1900] for i in range(0, len(msg), 1900)]:
+            try:
+                send_discord_alert(chunk)
+            except Exception as e:
+                print(f"[WARN] Discord send failed: {e}")
+    elif end_of_day and not test_mode:
         try:
-            send_discord_alert(chunk)
+            send_discord_alert(
+                f"😎 All systems stable. No sell signals today.\n"
+                f"🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+            )
         except Exception as e:
             print(f"[WARN] Discord send failed: {e}")
-elif end_of_day and not test_mode:
-    try:
-        send_discord_alert(
-            f"😎 All systems stable. No sell signals today.\n"
-            f"🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
-        )
-    except Exception as e:
-        print(f"[WARN] Discord send failed: {e}")
 
-print(f"[DONE] Decision Engine completed at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    print(f"[DONE] Decision Engine completed at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
