@@ -3,14 +3,14 @@
   "had_alerts": false,
   "tickers": {
     "M": {
-      "weak_streak": 5.0,
+      "weak_streak": 5.5,
       "recent_peak": 23.829999923706055,
       "last_checked_price": 23.829999923706055,
       "last_checked_time": "2025-12-20T16:38:51Z",
       "rolling_scores": [
         3.5,
-        3.5,
         2.5,
+        3.5,
         3.5,
         3.5,
         3.5,
@@ -27,11 +27,14 @@
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
       "last_sell_index": 0.33464285714285713,
-      "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
+      "last_signal_label": "🟢 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10031953116697111,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.31561970114707955,
+      "last_mt_sell_signal": false,
+      "last_currency": "USD",
+      "last_fx_to_lei": 4.323440074920654
     },
     "NVDA": {
       "weak_streak": 0.0,
@@ -46,7 +49,7 @@
         1,
         1,
         1,
-        1
+        1.0
       ],
       "last_decay_date": "2025-12-22",
       "was_above_47": false,
@@ -59,11 +62,14 @@
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
       "last_sell_index": 0.20500000000000002,
-      "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
+      "last_signal_label": "🟢 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10031953116697111,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.31561970114707955,
+      "last_mt_sell_signal": false,
+      "last_currency": "USD",
+      "last_fx_to_lei": 4.323440074920654
     },
     "MU": {
       "weak_streak": 0.0,
@@ -77,7 +83,7 @@
         0,
         0,
         0,
-        0
+        0.0
       ],
       "last_decay_date": "2025-12-22",
       "was_above_47": false,
@@ -91,11 +97,14 @@
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
       "last_sell_index": 0.15,
-      "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
+      "last_signal_label": "🟢 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10032026371198835,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.31561970114707955,
+      "last_mt_sell_signal": false,
+      "last_currency": "USD",
+      "last_fx_to_lei": 4.323440074920654
     },
     "LRCX": {
       "weak_streak": 28.0,
@@ -128,7 +137,7 @@
         1,
         1,
         1,
-        1
+        1.0
       ],
       "last_decay_date": "2025-12-22",
       "was_above_47": false,
@@ -137,16 +146,19 @@
       "last_pnl_pct": -3.8829578718434203,
       "last_rule_norm": 0.2857142857142857,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.3378894794914797,
+      "last_mt_prob": 0.3378894794914796,
       "last_mt_prob_thr": 0.75,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
       "last_sell_index": 0.20500000000000002,
-      "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
+      "last_signal_label": "🟢 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
-      "last_mt_pred_sellscore": 0.10032026371198836,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_pred_sellscore": 0.10032026371198835,
+      "last_mt_sell_threshold": 0.31561970114707955,
+      "last_mt_sell_signal": false,
+      "last_currency": "USD",
+      "last_fx_to_lei": 4.323440074920654
     },
     "III.TO": {
       "weak_streak": 0.0,
@@ -173,19 +185,22 @@
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
       "last_sell_index": 0.1775,
-      "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
+      "last_signal_label": "🟢 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10032954779705626,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.31561970114707955,
+      "last_mt_sell_signal": false,
+      "last_currency": "CAD",
+      "last_fx_to_lei": 3.145169973373413
     },
     "KEP": {
-      "weak_streak": 5.0,
+      "weak_streak": 4.5,
       "recent_peak": 18.260000228881836,
       "rolling_scores": [
         3.5,
         3.5,
-        3.5,
+        2.5,
         2.5,
         2.5,
         2.5,
@@ -196,7 +211,7 @@
       "last_alert_time": "2025-11-12T14:44:22Z",
       "last_checked_price": 16.90999984741211,
       "last_checked_time": "2025-12-20T16:38:52Z",
-      "last_score": 2.9285714285714284,
+      "last_score": 2.7857142857142856,
       "last_pnl_pct": 2.004819647355859,
       "last_rule_norm": 0.25,
       "last_mt_regime": 1,
@@ -204,12 +219,15 @@
       "last_mt_prob_thr": 0.75,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
-      "last_sell_index": 0.31107142857142855,
-      "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
+      "last_sell_index": 0.3032142857142857,
+      "last_signal_label": "🟢 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10032954779705626,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.31561970114707955,
+      "last_mt_sell_signal": false,
+      "last_currency": "USD",
+      "last_fx_to_lei": 4.323440074920654
     },
     "JFU": {
       "weak_streak": 0.0,
@@ -221,7 +239,7 @@
         0,
         0,
         0,
-        0
+        0.0
       ],
       "last_decay_date": "2025-12-22",
       "was_above_47": false,
@@ -236,11 +254,14 @@
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
       "last_sell_index": 0.15,
-      "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
+      "last_signal_label": "🟢 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
       "last_mt_pred_sellscore": 0.10032954779705626,
-      "last_mt_sell_threshold": 0.31561970114707955
+      "last_mt_sell_threshold": 0.31561970114707955,
+      "last_mt_sell_signal": false,
+      "last_currency": "USD",
+      "last_fx_to_lei": 4.323440074920654
     }
   }
 }
