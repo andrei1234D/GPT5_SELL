@@ -68,10 +68,10 @@
   "sell_signal": {
     "definition": "good_sell := (SellScore >= sell_threshold)",
     "sell_threshold": 0.31561970114707955,
-    "prob_threshold": 0.65,
+    "prob_threshold": 0.75,
     "calibration_diag": {
       "sell_threshold": 0.31561970114707955,
-      "prob_threshold": 0.65,
+      "prob_threshold": 0.7,
       "base_rate": 0.10000003323916677,
       "auc": 0.7555347672716465,
       "brier": 0.19703153917245508,
