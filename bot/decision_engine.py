@@ -594,12 +594,17 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         ml_conf_pct = float(mt_gate or 0.0) * 100.0
 
         ml_line = _ml_line(
-            ticker=ticker,
+            ticker,
             mt=mt,
-            pred=mt_pred,
-            w_mt=w_mt,
+            mt_prob=mt_prob,
+            mt_prob_thr=mt_prob_thr,
+            mt_gate=mt_gate,
+            mt_weight=mt_weight,
             ml_contrib=ml_contrib,
-            m_pct=m_pct,
+            pred_sellscore=pred_sellscore,
+            sell_threshold=sell_threshold,
+            model_type=model_type,
+            source=("calibrator" if mt_prob is not None else "unavailable"),
         )
 
         contrib_line = (
