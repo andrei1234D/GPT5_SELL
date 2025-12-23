@@ -4,6 +4,7 @@ import os
 import subprocess
 from datetime import datetime
 
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -376,14 +377,14 @@ def _ml_line(
     ticker: str,
     *,
     mt: int,
-    mt_prob: Optional[float],
-    mt_prob_thr: Optional[float],
+    mt_prob,
+    mt_prob_thr,
     mt_gate: float,
     mt_weight: float,
     ml_contrib: float,
-    pred_sellscore: Optional[float],
-    sell_threshold: Optional[float],
-    model_type: Optional[str],
+    pred_sellscore,
+    sell_threshold,
+    model_type,
     source: str = "unknown",
 ) -> str:
     """
