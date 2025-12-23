@@ -62,6 +62,18 @@ def get_ticker_currency(ticker: str) -> str:
     return ccy
 
 
+def _safe_float(x, default=None):
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str) and x.strip() == "":
+            return default
+        return float(x)
+    except Exception:
+        return default
+
+
+
 def get_fx_to_ron(currency: str) -> float:
     c = (currency or "").upper().strip()
     if c in ("RON", "LEI"):
