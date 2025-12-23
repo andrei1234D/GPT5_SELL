@@ -3,7 +3,7 @@
   "had_alerts": false,
   "tickers": {
     "M": {
-      "weak_streak": 8.0,
+      "weak_streak": 8.5,
       "recent_peak": 23.829999923706055,
       "last_checked_price": 23.829999923706055,
       "last_checked_time": "2025-12-20T16:38:51Z",
@@ -53,9 +53,9 @@
       "last_checked_price": 180.99000549316406,
       "last_checked_time": "2025-12-20T16:38:51Z",
       "rolling_scores": [
-        1,
         1.0,
         1,
+        1.0,
         1.0,
         1.0,
         1.0,
@@ -67,7 +67,7 @@
       "last_pnl_pct": 0.2554541523752617,
       "last_rule_norm": 0.35,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.33788586833279,
+      "last_mt_prob": 0.3378858683327899,
       "last_mt_prob_thr": 0.75,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
@@ -75,7 +75,7 @@
       "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
-      "last_mt_pred_sellscore": 0.10031953116697112,
+      "last_mt_pred_sellscore": 0.10031953116697111,
       "last_mt_sell_threshold": 0.31561970114707955,
       "last_mt_sell_signal": false,
       "last_currency": "USD",
@@ -97,9 +97,9 @@
       "last_checked_price": 265.9200134277344,
       "last_checked_time": "2025-12-20T16:38:51Z",
       "rolling_scores": [
-        0,
         0.0,
         0,
+        0.0,
         0.0,
         0.0,
         0.0,
@@ -112,7 +112,7 @@
       "last_pnl_pct": 19.78662994627808,
       "last_rule_norm": 0.1,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.3378894794914796,
+      "last_mt_prob": 0.3378894794914797,
       "last_mt_prob_thr": 0.75,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
@@ -120,7 +120,7 @@
       "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
-      "last_mt_pred_sellscore": 0.10032026371198835,
+      "last_mt_pred_sellscore": 0.10032026371198836,
       "last_mt_sell_threshold": 0.31561970114707955,
       "last_mt_sell_signal": false,
       "last_currency": "USD",
@@ -161,9 +161,9 @@
       "last_checked_price": 266.9800109863281,
       "last_checked_time": "2025-12-20T16:38:51Z",
       "rolling_scores": [
-        1,
         1.0,
         1,
+        1.0,
         1.0,
         1.0,
         1.0,
@@ -245,7 +245,7 @@
       "last_mt_model_type": "ET"
     },
     "KEP": {
-      "weak_streak": 2.0,
+      "weak_streak": 1.5,
       "recent_peak": 18.260000228881836,
       "rolling_scores": [
         2.5,
@@ -293,9 +293,9 @@
       "weak_streak": 0.0,
       "recent_peak": 6.550000190734863,
       "rolling_scores": [
-        0,
         0.0,
         0,
+        0.0,
         0.0,
         0.0,
         0.0,
