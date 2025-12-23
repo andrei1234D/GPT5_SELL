@@ -94,6 +94,18 @@ def get_fx_pair_to_ron(currency: str):
         return "GBPRON=X"
     if c == "CHF":
         return "CHFRON=X"
+    if c == "CAD":
+        return "CADRON=X"
+    if c == "JPY":
+        return "JPYRON=X"
+    if c == "NOK":
+        return "NOKRON=X"
+    if c == "SEK":
+        return "SEKRON=X"
+    if c == "DKK":
+        return "DKKRON=X"
+    if c == "PLN":
+        return "PLNRON=X"
     return None
 
 
@@ -121,22 +133,48 @@ def get_fx_to_ron(currency: str, default_usdron=4.6) -> float:
         return 1.0
     if c in _FX_CACHE:
         return _FX_CACHE[c]
+
+    # 1) direct <CCY>RON cross if available
     pair = get_fx_pair_to_ron(c)
-    if pair is None:
-        _FX_CACHE[c] = 1.0
-        return 1.0
+    if pair is not None:
+        try:
+            fx = yf.Ticker(pair).history(period="1d")
+            if not fx.empty:
+                v = float(fx["Close"].iloc[-1])
+                if v > 0:
+                    _FX_CACHE[c] = v
+                    return v
+        except Exception:
+            pass
+
+    # 2) cross via USD if direct is missing:
+    #    CCYRON ~= (CCYUSD) * (USDRON)
     try:
-        fx = yf.Ticker(pair).history(period="1d")
-        if not fx.empty:
-            v = float(fx["Close"].iloc[-1])
-            if v > 0:
-                _FX_CACHE[c] = v
-                return v
+        if c != "USD":
+            usdron = get_fx_to_ron("USD", default_usdron=default_usdron)
+            ccyusd = yf.Ticker(f"{c}USD=X").history(period="1d")
+            if not ccyusd.empty:
+                v = float(ccyusd["Close"].iloc[-1]) * float(usdron)
+                if v > 0:
+                    _FX_CACHE[c] = v
+                    return v
+            usdccy = yf.Ticker(f"USD{c}=X").history(period="1d")
+            if not usdccy.empty:
+                inv = float(usdccy["Close"].iloc[-1])
+                if inv > 0:
+                    v = (1.0 / inv) * float(usdron)
+                    if v > 0:
+                        _FX_CACHE[c] = v
+                        return v
     except Exception:
         pass
+
+    # 3) fallback
     fallback = default_usdron if c == "USD" else 1.0
     _FX_CACHE[c] = fallback
     return fallback
+
+
 
 
 def smooth_fx_toward(old_fx: float, new_fx: float, weight: float) -> float:
@@ -456,7 +494,7 @@ async def list(ctx):
             model_txt = s["mt_model"] or "?"
             src_txt = s["mt_src"] or "?"
             msg_lines.append(
-                f"    🤖 MT {int(s['mt_regime']):+d} | {sell_txt} | prob {float(s['mt_prob']):.2f} (thr {thr_txt}) | gate {gate_txt} | {model_txt} | src={src_txt}\n"
+                f"    🤖 MT {int(s['mt_regime']):+d} | {sell_txt} | prob {float(s['mt_prob']):.2f} (thr {thr_txt}) | Gate {gate_txt} | {model_txt} | src={src_txt}\n"
             )
 
         if s["last_alert"]:

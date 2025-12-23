@@ -4,7 +4,6 @@ import os
 import subprocess
 from datetime import datetime
 
-
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -13,6 +12,21 @@ from tracker import load_data
 from notify import send_discord_alert
 from fetch_data import compute_indicators
 from llm_predict import SellBrain, run_batch_predictions  # MT Brain integration (bear/neutral/bull)
+
+def _safe_float(x, default=None):
+    """Best-effort float conversion (keeps pipeline resilient to None/''/nan)."""
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str) and x.strip() == "":
+            return default
+        v = float(x)
+        if v != v:  # NaN
+            return default
+        return v
+    except Exception:
+        return default
+
 
 TRACKER_FILE = "bot/sell_alerts_tracker.json"
 LIVE_RESULTS_CSV = "bot/live_results.csv"
@@ -60,18 +74,6 @@ def get_ticker_currency(ticker: str) -> str:
     ccy = (ccy or "USD").upper().strip()
     _TICKER_CCY_CACHE[ticker] = ccy
     return ccy
-
-
-def _safe_float(x, default=None):
-    try:
-        if x is None:
-            return default
-        if isinstance(x, str) and x.strip() == "":
-            return default
-        return float(x)
-    except Exception:
-        return default
-
 
 
 def get_fx_to_ron(currency: str) -> float:
@@ -194,17 +196,7 @@ def check_sell_conditions(
     info=None,
     debug=True,
 ):
-    """
-    Deterministic scoring engine.
-
-    Returns:
-      sell_override (bool): hard override SELL (e.g., hard stop loss)
-      message (str): human label for override reason / general status
-      current_price (float): passthrough
-      avg_score (float): rolling average score (0..10-ish)
-      score (float): instantaneous score this run
-      reasons (list[str]): active rule flags that contributed to `score`
-    """
+    """Compute score and weak streak; returns (sell_bool, message, current_price, avg_score)."""
     if info is None:
         info = {}
 
@@ -214,136 +206,102 @@ def check_sell_conditions(
     info.setdefault("last_decay_date", None)
     info.setdefault("was_above_47", False)
 
-    reasons: list[str] = []
-
     # --- Hard Stop Loss (-25%) ---
     if pnl_pct is not None and pnl_pct <= -25:
-        # Allow HOLD exceptions when clearly oversold or stabilizing
-        if rsi is not None and float(rsi) < 35:
-            return False, f"Oversold RSI={float(rsi):.1f} → HOLD", current_price, 0.0, 0.0, ["HardStop: oversold_exception"]
-        if momentum is not None and float(momentum) >= 0:
-            return False, "Momentum stabilizing → HOLD", current_price, 0.0, 0.0, ["HardStop: momentum_exception"]
-        return True, "HARD STOP LOSS (-25%)", current_price, 0.0, 10.0, ["HardStop: triggered"]
+        if rsi and rsi < 35:
+            return False, f"📈 Oversold (RSI={rsi:.1f}), HOLD.", current_price, 0.0
+        if momentum and momentum >= 0:
+            return False, "📈 Momentum stabilizing → HOLD.", current_price, 0.0
+        return True, "🛑 Hard Stop Loss Triggered (-25%)", current_price, 10.0
 
-    score = 0.0
+    score, reasons = 0.0, []
 
     # --- Core scoring factors ---
     if momentum is not None:
-        m = float(momentum)
-        if m < -0.8:
-            score += 2.0
-            reasons.append("Momentum collapse (< -0.8)")
-        elif m < -0.3:
-            score += 1.0
-            reasons.append("Weak momentum (< -0.3)")
+        if momentum < -0.8:
+            score += 2
+            reasons.append("📉 Momentum Collapse (< -0.8)")
+        elif momentum < -0.3:
+            score += 1
+            reasons.append("📉 Weak Momentum (< -0.3)")
 
     if rsi is not None:
-        r = float(rsi)
-        if r < 35:
+        if rsi < 35:
             score += 1.5
-            reasons.append("RSI oversold (< 35)")
-        elif r < 45:
-            score += 1.0
-            reasons.append("RSI weak (< 45)")
-        elif r > 70:
+            reasons.append("📉 RSI Oversold (<35)")
+        elif rsi < 45:
+            score += 1
+            reasons.append("📉 RSI Weak (<45)")
+        elif rsi > 70:
             score += 0.5
-            reasons.append("RSI overbought (> 70)")
+            reasons.append("📈 RSI Overbought (>70)")
 
-    if macd is not None and macd_signal is not None:
-        try:
-            if float(macd) < float(macd_signal):
-                score += 1.5
-                reasons.append("MACD bearish crossover")
-        except Exception:
-            pass
+    if macd is not None and macd_signal is not None and macd < macd_signal:
+        score += 1.5
+        reasons.append("📉 MACD Bearish Crossover")
 
-    if ma50 is not None:
-        try:
-            if float(current_price) < float(ma50):
-                score += 1.0
-                reasons.append("Below MA50")
-        except Exception:
-            pass
+    if ma50 and current_price < ma50:
+        score += 1
+        reasons.append("📉 Below MA50")
 
-    if ma200 is not None:
-        try:
-            if float(current_price) < float(ma200):
-                score += 2.0
-                reasons.append("Below MA200 (major)")
-        except Exception:
-            pass
+    if ma200 and current_price < ma200:
+        score += 2
+        reasons.append("📉 Below MA200 (Major Breakdown)")
 
-    if support is not None:
-        try:
-            if float(current_price) < float(support):
-                score += 2.0
-                reasons.append("Support broken")
-        except Exception:
-            pass
+    if support and current_price < support:
+        score += 2
+        reasons.append("📉 Support Broken")
 
-    if volume is not None:
-        try:
-            if float(volume) > 1.3:
-                score += 1.0
-                reasons.append("High relative volume (> 1.3x)")
-        except Exception:
-            pass
+    if volume and volume > 1.3:
+        score += 1
+        reasons.append("📉 High Volume Breakdown (>1.3x avg)")
 
-    if atr is not None and pnl_pct is not None:
-        try:
-            if float(atr) > 7 and float(pnl_pct) < 0:
-                score += 0.5
-                reasons.append("High ATR + loss")
-        except Exception:
-            pass
+    if atr and pnl_pct is not None and atr > 7 and pnl_pct < 0:
+        score += 0.5
+        reasons.append("⚡ High Volatility + Loss")
 
     # --- Rolling scores and weak streak ---
-    rolling = info.get("rolling_scores", []) or []
+    rolling = info.get("rolling_scores", [])
     rolling.append(float(score))
     if len(rolling) > 7:
         rolling.pop(0)
     info["rolling_scores"] = rolling
-    avg_score = (sum(rolling) / len(rolling)) if rolling else float(score)
+    avg_score = sum(rolling) / len(rolling) if rolling else float(score)
 
-    info["recent_peak"] = max(float(info.get("recent_peak", current_price)), float(current_price))
+    info["recent_peak"] = max(info["recent_peak"], current_price)
 
     # --- Weak streak logic ---
     now_utc = datetime.utcnow()
     market_hour = 13 <= now_utc.hour <= 21
-
     if pnl_pct is not None:
-        try:
-            p = float(pnl_pct)
-            if p >= 47:
-                info["was_above_47"] = True
-            elif p < 29:
-                info["was_above_47"] = False
-        except Exception:
-            pass
+        if pnl_pct >= 47:
+            info["was_above_47"] = True
+        elif pnl_pct < 29:
+            info["was_above_47"] = False
 
     if market_hour and info.get("last_decay_date") != now_utc.strftime("%Y-%m-%d"):
-        info["weak_streak"] = max(0.0, float(info.get("weak_streak", 0.0)) - 0.5)
+        info["weak_streak"] = max(0.0, info["weak_streak"] - 0.5)
         info["last_decay_date"] = now_utc.strftime("%Y-%m-%d")
 
-    quiet_market = (atr is not None and float(atr) < 3) and (volume is not None and float(volume) < 0.7)
-
+    quiet_market = (atr is not None and atr < 3) and (volume is not None and volume < 0.7)
     if score >= 6.5:
-        info["weak_streak"] = float(info.get("weak_streak", 0.0)) + 2.0
+        info["weak_streak"] += 2.0
     elif score >= 4.0:
-        info["weak_streak"] = float(info.get("weak_streak", 0.0)) + (0.5 if quiet_market else 1.0)
+        info["weak_streak"] += 1.0 if not quiet_market else 0.5
     elif score >= 3.0 and quiet_market:
-        info["weak_streak"] = float(info.get("weak_streak", 0.0)) + 0.5
-    elif momentum is not None and rsi is not None and float(momentum) > 0.4 and float(rsi) > 50:
+        info["weak_streak"] += 0.5
+    elif momentum and momentum > 0.4 and rsi and rsi > 50:
         info["weak_streak"] = 0.0
-    elif score < 3.0 and float(info.get("weak_streak", 0.0)) > 0:
-        info["weak_streak"] = float(info.get("weak_streak", 0.0)) - 0.5
+    elif score < 3.0 and info["weak_streak"] > 0:
+        info["weak_streak"] -= 0.5
 
-    info["weak_streak"] = max(0.0, round(float(info.get("weak_streak", 0.0)), 1))
+    info["weak_streak"] = max(0.0, round(info["weak_streak"], 1))
 
     if debug:
         print(f"⏳ {ticker}: Weak {info['weak_streak']:.1f}/3 — AvgScore={avg_score:.1f}")
 
-    return False, "Holding steady", current_price, float(avg_score), float(score), reasons
+    return False, "🟢 Holding steady.", current_price, float(avg_score)
+
 
 def _pct(part: float, total: float) -> float:
     if total <= 0:
@@ -385,41 +343,48 @@ def _load_llm_input_map() -> dict[str, dict]:
         return {}
 
 
-def _ml_line(
-    ticker: str,
-    *,
-    mt: int,
-    mt_prob,
-    mt_prob_thr,
-    mt_gate: float,
-    mt_weight: float,
-    ml_contrib: float,
-    pred_sellscore,
-    sell_threshold,
-    model_type,
-    source: str = "unknown",
-) -> str:
-    """
-    One-line ML diagnostic meant for human scanning.
-    """
+def _ml_line(ticker: str, mt: int, pred: dict | None, w_mt: float, ml_contrib: float, m_pct: float) -> str:
     if mt_prob is None:
-        return f"    ML: n/a | w={mt_weight:.2f} → +{ml_contrib:.2f}"
+        return f"    ML: unavailable (w={mt_weight:.2f})"
 
     p = float(mt_prob)
-    thr = float(mt_prob_thr) if mt_prob_thr is not None else float("nan")
-    sig = "SELL" if (mt_prob_thr is not None and p >= float(mt_prob_thr)) else "HOLD"
     gate = float(mt_gate or 0.0)
-
-    ps = f"{float(pred_sellscore):.3f}" if pred_sellscore is not None else "n/a"
-    st = f"{float(sell_threshold):.3f}" if sell_threshold is not None else "n/a"
-    mt_txt = f"{int(mt):+d}"
-    mt_type = (model_type or "model").strip()
+    pred_txt = f"{float(pred_sellscore):.3f}" if pred_sellscore is not None else "n/a"
+    thr_txt = f"{float(sell_threshold):.3f}" if sell_threshold is not None else "n/a"
+    model = model_type or "?"
+    verdict = "SELL" if bool(p >= (mt_prob_thr or 1.0)) else "NO-SELL"
+    src = source or "unknown"
 
     return (
-        f"    ML: {sig} | MT {mt_txt} | P {p:.3f} (thr {thr:.2f}) | score {gate:.2f} | "
-        f"w {mt_weight:.2f} → +{ml_contrib:.2f} | pred {ps} vs sell_thr {st} | {mt_type} | src={source}"
+        f"    ML: {verdict} | P {p:.3f} (thr {float(mt_prob_thr):.2f}) | Gate {gate:.2f} | "
+        f"pred {pred_txt} vs sell_thr {thr_txt} | {model} | src={src}"
     )
 
+    mt_prob = pred.get("mt_prob")
+    mt_thr = pred.get("mt_prob_threshold")
+    mt_gate = float(pred.get("mt_gate") or 0.0)
+    mt_sell = bool(pred.get("mt_sell_signal") or False)
+    pred_score = pred.get("pred_sellscore")
+    sell_thr = pred.get("sell_threshold")
+    model_type = pred.get("model_type") or "?"
+    prob_source = pred.get("prob_source") or "?"
+
+    p_txt = "n/a" if mt_prob is None else f"{float(mt_prob):.3f}"
+    thr_txt = "n/a" if mt_thr is None else f"{float(mt_thr):.2f}"
+    gate_txt = f"{mt_gate:.2f}"
+    ss_txt = "n/a" if pred_score is None else f"{float(pred_score):.3f}"
+    st_txt = "n/a" if sell_thr is None else f"{float(sell_thr):.3f}"
+
+    return (
+        f"🤖 [ML] {ticker}: sell={mt_sell} | MT={mt:+d} | P={p_txt} thr={thr_txt} gate={gate_txt} "
+        f"w={w_mt:.2f} contrib={ml_contrib:.2f} ({m_pct:.0f}%) | score={ss_txt} vs sell_thr={st_txt} "
+        f"| {model_type} | src={prob_source}"
+    )
+
+
+# ---------------------------
+# Runner with Fusion Logic (Deterministic + MT Brain Gate)
+# ---------------------------
 def run_decision_engine(test_mode=False, end_of_day=False):
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
     tracker = load_tracker()
@@ -479,7 +444,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         pnl_pct = (pnl_lei / invested_lei) * 100.0 if invested_lei else 0.0
 
         # Rule decision (including hard stop-loss override)
-        rule_sell, rule_msg, _, avg_score, rule_score, rule_reasons = check_sell_conditions(
+        rule_sell, rule_msg, _, avg_score = check_sell_conditions(
             ticker,
             avg_price,
             current_price,
@@ -531,7 +496,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         rule_norm = min(1.0, float(avg_score) / 10.0)
 
         # Weights: bias + rule + mt = 1 (clamped)
-        w_bias = 0.15
+        w_bias = 0.0
         w_mt = max(0.0, min(0.85, float(mt_weight or 0.0)))
         w_rule = max(0.0, 1.0 - w_bias - w_mt)
 
@@ -551,7 +516,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         ml_contrib = ml_contrib * float(mt_gate or 0.0)
 
         bias_contrib = w_bias
-        sell_index = rule_contrib + ml_contrib + bias_contrib
+        sell_index = rule_contrib + ml_contrib
         sell_index = max(0.0, min(sell_index, 1.0))
 
         # Optional softening: deterministic borderline sell gets softened if ML is NOT confident.
@@ -571,40 +536,39 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         b_pct = _pct(bias_contrib, sell_index)
 
         # === Determine decision zone ===
+        SELL_INDEX_SELL = 0.65
+        SELL_INDEX_STRONG = 0.75
+
+        # Default
         decision = False
-        signal_label = "🟢 HOLD / WATCH MODE"
+        signal_label = "HOLD"
         color_tag = "🟢"
 
         # Hard override: never ignore rule SELL (hard stop-loss)
         if bool(rule_sell):
             decision = True
-            signal_label = "🛑 HARD STOP-LOSS SELL"
+            signal_label = "HARD STOP-LOSS"
             color_tag = "🔴"
         else:
-            if sell_index >= 0.75 and weak_streak >= 1.0:
+            if sell_index >= SELL_INDEX_STRONG and weak_streak >= 1.0:
                 decision = True
-                signal_label = "🔥 STRONG SELL SIGNAL"
+                signal_label = "STRONG SELL"
                 color_tag = "🔴"
-            elif sell_index >= 0.65:
+            elif sell_index >= SELL_INDEX_SELL:
                 decision = True
-                signal_label = "⚠️ EARLY SELL ALERT"
+                signal_label = "SELL ALERT"
                 color_tag = "🟠"
 
         pnl_context = _context_tag(pnl_pct)
         ml_conf_pct = float(mt_gate or 0.0) * 100.0
 
         ml_line = _ml_line(
-            ticker,
+            ticker=ticker,
             mt=mt,
-            mt_prob=mt_prob,
-            mt_prob_thr=mt_prob_thr,
-            mt_gate=mt_gate,
-            mt_weight=mt_weight,
+            pred=mt_pred,
+            w_mt=w_mt,
             ml_contrib=ml_contrib,
-            pred_sellscore=pred_sellscore,
-            sell_threshold=sell_threshold,
-            model_type=model_type,
-            source=("calibrator" if mt_prob is not None else "unavailable"),
+            m_pct=m_pct,
         )
 
         contrib_line = (
@@ -613,56 +577,40 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         )
         soft_line = "💤 ML softened borderline SELL → HOLD." if mt_softened else ""
 
+        delta_to_sell = SELL_INDEX_SELL - sell_index
+        rule_flags = info_state.get("last_rule_flags") or []
         reasoning = (
-            f"{color_tag} **{signal_label}**\n"
-            f"{pnl_context}\n\n"
-            f"💰 **PnL:** {pnl_pct:+.2f}% ({ccy}→RON fx={fx_to_ron:.4f})\n"
-            f"📊 **AvgScore:** {avg_score:.2f} | Weak: {weak_streak:.1f}/3\n"
-            f"🧠 **Consensus Index:** {sell_index:.2f}\n"
+            f"{color_tag} {ticker} | {signal_label} | "
+            f"SellIndex {sell_index:.2f} / {SELL_INDEX_SELL:.2f} SELL (Δ{delta_to_sell:+.2f}) | "
+            f"Weak {weak_streak:.1f}/3 | PnL {pnl_pct:+.2f}% | CCY {ccy} | MT {mt:+d}\n"
             f"{contrib_line}\n"
-            f"{ml_line}\n"
-            f"{soft_line}\n"
-            f"🧾 Rule note: {rule_msg}"
+            f"    RuleFlags: {', '.join(rule_flags) if rule_flags else 'none'}\n"
+            f"{ml_line}"
         )
 
         # Console summary
-        ui_thr = 0.65
-        delta_to_sell = max(0.0, ui_thr - sell_index)
         print(
-            f"{color_tag} {ticker} | {signal_label} | "
-            f"SellIndex {sell_index:.2f}/{ui_thr:.2f}(sell) (Δ{delta_to_sell:.2f}) | "
-            f"Weak {weak_streak:.1f}/3 | PnL {pnl_pct:+.2f}% | CCY={ccy} | MT={mt:+d}"
+            f"{color_tag} {ticker}: {signal_label} | SellIndex={sell_index:.2f} | Weak={weak_streak:.1f} "
+            f"| PnL={pnl_pct:+.2f}% | CCY={ccy} | MT={mt:+d} | Rule%={r_pct:.0f} ML%={m_pct:.0f} Bias%={b_pct:.0f}"
         )
-        print(
-            f"    Drivers: RuleScore {rule_norm:.2f} (AvgScore {avg_score:.1f}/10) → +{rule_contrib:.2f} | "
-            f"MLScore {float(mt_gate or 0.0):.2f} → +{ml_contrib:.2f} | Bias → +{bias_contrib:.2f}"
-        )
-        flags_txt = "none" if not rule_reasons else "; ".join(rule_reasons[:5]) + (" ..." if len(rule_reasons) > 5 else "")
-        print(f"    RuleFlags: {flags_txt}")
         print(ml_line)
-
 
         # --- Persist debug fields into tracker ---
         info_state["last_score"] = float(avg_score)
         info_state["last_sell_index"] = float(sell_index)
         info_state["last_mt"] = int(mt)
-        info_state["last_mt_regime"] = int(mt)  # compatibility with Discord !list
-        info_state["last_signal_label"] = signal_label
-        info_state["last_checked_time"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-        info_state["last_rule_score"] = float(avg_score)
-        info_state["last_rule_flags"] = list(rule_reasons) if isinstance(rule_reasons, list) else []
 
         info_state["last_w_rule"] = float(w_rule)
         info_state["last_w_mt"] = float(w_mt)
-        info_state["last_w_bias"] = float(w_bias)
+        info_state["last_w_bias"] = 0.0
 
         info_state["last_contrib_rule"] = float(rule_contrib)
         info_state["last_contrib_ml"] = float(ml_contrib)
-        info_state["last_contrib_bias"] = float(bias_contrib)
+        info_state["last_contrib_bias"] = 0.0
 
         info_state["last_contrib_rule_pct"] = float(r_pct)
         info_state["last_contrib_ml_pct"] = float(m_pct)
-        info_state["last_contrib_bias_pct"] = float(b_pct)
+        info_state["last_contrib_bias_pct"] = 0.0
 
         info_state["last_mt_prob"] = None if mt_prob is None else float(mt_prob)
         info_state["last_mt_gate"] = float(mt_gate)
@@ -678,7 +626,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
         now_utc = datetime.utcnow()
         if decision:
-            tracker["had_alerts"] = True
             info_state["last_alert_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
             sell_alerts.append(
                 f"📈 **[{ticker}] {signal_label}**\n"
