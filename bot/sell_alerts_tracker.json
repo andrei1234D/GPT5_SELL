@@ -3,7 +3,7 @@
   "had_alerts": false,
   "tickers": {
     "M": {
-      "weak_streak": 16.0,
+      "weak_streak": 16.5,
       "recent_peak": 23.829999923706055,
       "last_checked_price": 23.829999923706055,
       "last_checked_time": "2025-12-20T16:38:51Z",
@@ -46,7 +46,7 @@
       "last_contrib_bias_pct": 43.7956204379562,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.3125
+      "last_fx_to_ron": 4.312739849090576
     },
     "NVDA": {
       "weak_streak": 0.0,
@@ -93,7 +93,7 @@
       "last_contrib_bias_pct": 73.17073170731706,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.3125
+      "last_fx_to_ron": 4.312739849090576
     },
     "MU": {
       "weak_streak": 0.0,
@@ -140,7 +140,7 @@
       "last_contrib_bias_pct": 97.9260500153104,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.3125
+      "last_fx_to_ron": 4.312739849090576
     },
     "LRCX": {
       "weak_streak": 28.0,
@@ -206,7 +206,7 @@
       "last_contrib_bias_pct": 73.17073170731706,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.3125
+      "last_fx_to_ron": 4.312739849090576
     },
     "III.TO": {
       "weak_streak": 0.0,
@@ -275,7 +275,7 @@
       "last_pnl_pct": 2.004819647355859,
       "last_rule_norm": 0.25,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.4090021784654453,
+      "last_mt_prob": 0.4090021784654454,
       "last_mt_prob_thr": 0.75,
       "last_mt_gate": 0.0,
       "last_mt_weight": 0.3,
@@ -283,7 +283,7 @@
       "last_signal_label": "\ud83d\udfe2 **HOLD / WATCH MODE**",
       "last_decision": false,
       "last_mt": 1,
-      "last_mt_pred_sellscore": 0.11414486849231179,
+      "last_mt_pred_sellscore": 0.11414486849231181,
       "last_mt_sell_threshold": 0.31561970114707955,
       "last_mt_sell_signal": false,
       "last_currency": "USD",
@@ -299,7 +299,7 @@
       "last_contrib_bias_pct": 52.17391304347826,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.3125
+      "last_fx_to_ron": 4.312739849090576
     },
     "JFU": {
       "weak_streak": 0.0,
@@ -345,7 +345,7 @@
       "last_contrib_bias_pct": 42.332114692731295,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.3125
+      "last_fx_to_ron": 4.312739849090576
     }
   }
 }
