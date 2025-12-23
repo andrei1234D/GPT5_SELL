@@ -9,34 +9,30 @@ MT (MarketTrend) "brain" for production. Loads your 3 best models:
 Sidecar metadata JSONs:
   - best_model_MT-1.json / best_model_MT0.json / best_model_MT1.json
 
-CRITICAL: Production probability MUST match training:
-  - The regressor outputs pred_sellscore (a continuous score).
-  - Training then fits a LogisticRegression calibrator on pred_sellscore to estimate:
+Training-consistent semantics:
+  - The regressor outputs pred_sellscore (continuous).
+  - Training fits a LogisticRegression calibrator on pred_sellscore to estimate:
         P(good_sell) = P(SellScore >= sell_threshold | pred_sellscore)
-  - Production decision is gated by:
-        sell_signal := (P(good_sell) >= prob_threshold)
+  - Production is gated by:
+        mt_sell_signal := (P(good_sell) >= prob_threshold)
 
 This file therefore:
-  - uses payload["calibrator"].predict_proba([[pred_sellscore]]) when calibrator exists
-  - falls back to a simple logistic around sell_threshold ONLY if calibrator is missing
+  - uses payload["calibrator"].predict_proba([[pred_sellscore]]) when available
+  - falls back to a simple logistic around sell_threshold ONLY if calibrator is missing/unusable
 
-Common CI layout support:
-  - Joblibs are downloaded into SELL_MODEL_DIR (runner temp)
-  - JSONs remain in the checked-out repo under Brain/
-
-Model directory resolution (joblibs):
+Directory resolution (joblibs):
   1) explicit `model_dir` argument
   2) env var `SELL_MODEL_DIR`
   3) common container path `/brain`
   4) local fallback `Brain`
   5) local fallback `../Brain`
 
-JSON directory resolution (sidecars):
+Directory resolution (JSON sidecars):
   1) env var `SELL_META_DIR` (optional)
   2) repo-root Brain derived from this file location: <repo>/Brain
   3) `Brain` (cwd-relative)
   4) `../Brain` (cwd-relative)
-  5) model_dir (last resort, if jsons were downloaded alongside joblibs)
+  5) model_dir (last resort)
 
 Primary API used by decision_engine.py:
   SellBrain.predict(indicators: dict, market_trend: int) -> dict
@@ -75,9 +71,9 @@ def _clip01(x: float) -> float:
 
 def _gate_from_prob(prob: Optional[float], prob_thr: Optional[float]) -> float:
     """
-    Gate behavior:
+    Soft gate in [0, 1]:
       - prob <= thr => 0
-      - prob > thr  => linearly scaled to 0..1
+      - prob >  thr => linearly scaled to 0..1
     """
     if prob is None or prob_thr is None:
         return 0.0
@@ -139,12 +135,14 @@ class SellBrain:
     """
     Loads 3 regime-specific models and exposes a unified prediction interface.
 
-    Important semantics:
+    Output fields:
       - pred_sellscore: raw regressor output
-      - mt_prob: calibrated probability of "good_sell" (label defined via sell_threshold on true SellScore)
-      - mt_prob_threshold: gating threshold (prob_threshold from JSON)
+      - mt_prob: calibrated probability of "good_sell"
+      - mt_prob_threshold: gating threshold (prob_threshold)
       - mt_sell_signal: True iff mt_prob >= mt_prob_threshold
       - mt_gate: soft gate strength in [0,1], scaled above threshold
+      - mt_weight: static weight (used by decision_engine if it blends multiple brains)
+      - prob_source: "calibrator" or "fallback"
     """
 
     def __init__(self, model_dir: Optional[str | Path] = None):
@@ -161,7 +159,6 @@ class SellBrain:
         joblib_candidates.append(Path("/brain"))
         joblib_candidates.append(Path("Brain"))
         joblib_candidates.append(Path("../Brain"))
-
         joblib_candidates = _dedupe_paths(joblib_candidates)
 
         self.model_dir: Optional[Path] = None
@@ -183,7 +180,7 @@ class SellBrain:
         if env_meta:
             meta_candidates.append(Path(env_meta))
 
-        # Repo-local Brain (derived from file location; works in GitHub Actions)
+        # Repo-local Brain (derived from file location)
         try:
             repo_root = Path(__file__).resolve().parents[1]  # bot/llm_predict.py -> repo root
             meta_candidates.append(repo_root / "Brain")
@@ -193,7 +190,6 @@ class SellBrain:
         meta_candidates.append(Path("Brain"))
         meta_candidates.append(Path("../Brain"))
         meta_candidates.append(self.model_dir)  # last resort
-
         meta_candidates = _dedupe_paths(meta_candidates)
 
         self.meta_dir: Optional[Path] = None
@@ -218,14 +214,19 @@ class SellBrain:
         for regime in (-1, 0, 1):
             self._load_regime(regime)
 
-        # Keep your existing weights (decision_engine may combine with other brains)
+        # Decision-engine blending weights (kept as-is; may be overridden upstream)
         self._weight_by_regime = {-1: 0.40, 0: 0.20, 1: 0.30}
         self._default_prob_thr = 0.65
 
-        # If MT0 is missing sell_signal, synthesize it as mean of -1 and 1 thresholds
+        # If MT0 is missing sell_signal, synthesize it (now actually reachable)
         self._ensure_mt0_sell_signal()
 
-        # CI visibility: print loaded thresholds
+        # Final validation: ensure all regimes have sell_threshold
+        self._validate_sell_signal(-1)
+        self._validate_sell_signal(0)
+        self._validate_sell_signal(1)
+
+        # CI visibility
         for r in (-1, 0, 1):
             ss = self._meta.get(r, {}).get("sell_signal") or {}
             print(
@@ -260,17 +261,26 @@ class SellBrain:
         if isinstance(payload, dict):
             meta.setdefault("model_type", payload.get("model_type"))
 
-        # Validate sell_signal presence (prevents silent wrong gating)
-        ss = meta.get("sell_signal")
-        if not isinstance(ss, dict) or _safe_float(ss.get("sell_threshold")) is None:
-            raise ValueError(f"JSON missing sell_signal.sell_threshold for regime={regime}: {js}")
-
+        # NOTE: do not hard-fail on missing sell_signal here; MT0 can be synthesized.
         self._models[regime] = payload
         self._meta[regime] = meta
 
+    def _validate_sell_signal(self, regime: int):
+        meta = self._meta.get(regime) or {}
+        ss = meta.get("sell_signal")
+        if not isinstance(ss, dict):
+            raise ValueError(f"Missing sell_signal dict for regime={regime}")
+        if _safe_float(ss.get("sell_threshold")) is None:
+            raise ValueError(f"Missing sell_signal.sell_threshold for regime={regime}")
+        # prob_threshold can default; still validate numeric if present
+        pt = ss.get("prob_threshold")
+        if pt is not None and _safe_float(pt) is None:
+            raise ValueError(f"Invalid sell_signal.prob_threshold for regime={regime}: {pt!r}")
+
     def _ensure_mt0_sell_signal(self):
         m0 = self._meta.get(0, {})
-        if isinstance(m0.get("sell_signal"), dict):
+        ss0 = m0.get("sell_signal")
+        if isinstance(ss0, dict) and _safe_float(ss0.get("sell_threshold")) is not None:
             return
 
         m_neg = self._meta.get(-1, {})
@@ -280,6 +290,7 @@ class SellBrain:
         thr_pos = _safe_float((m_pos.get("sell_signal") or {}).get("sell_threshold"))
 
         if thr_neg is None or thr_pos is None:
+            # MT0 cannot be synthesized safely; leave missing so validation raises clearly.
             return
 
         mean_thr = 0.5 * (thr_neg + thr_pos)
@@ -298,8 +309,8 @@ class SellBrain:
     def _predict_sellscore(self, payload: Any, X_row: np.ndarray) -> float:
         """
         Supports:
-          - dict payload saved by your trainer
-          - raw sklearn pipeline estimator
+          - dict payload saved by your trainer (XGB or ET pipeline)
+          - raw sklearn estimator
         """
         if not isinstance(payload, dict):
             return float(payload.predict(X_row.reshape(1, -1))[0])
@@ -316,11 +327,11 @@ class SellBrain:
         model = payload.get("model", payload)
         return float(model.predict(X_row.reshape(1, -1))[0])
 
-    def _calibrated_prob(self, payload: Any, pred_sellscore: float, sell_threshold: float) -> float:
+    def _calibrated_prob(self, payload: Any, pred_sellscore: float, sell_threshold: float) -> tuple[float, str]:
         """
-        Training-consistent probability path:
-          - If payload has a fitted LogisticRegression calibrator, use it.
-          - Else fall back to a simple logistic around sell_threshold (last resort only).
+        Returns (prob, source):
+          - source="calibrator" if LogisticRegression calibrator succeeded
+          - source="fallback" otherwise
         """
         p = float(pred_sellscore)
 
@@ -328,17 +339,15 @@ class SellBrain:
             cal = payload["calibrator"]
             try:
                 prob = float(cal.predict_proba(np.array([[p]], dtype=float))[0, 1])
-                return _clip01(prob)
+                return _clip01(prob), "calibrator"
             except Exception:
-                # fall through to heuristic
                 pass
 
         # Fallback heuristic: logistic around sell_threshold (not identical to training calibrator).
-        # Keep conservative-ish slope.
         k = 12.0
         x = p - float(sell_threshold)
         prob = 1.0 / (1.0 + np.exp(-k * x))
-        return _clip01(float(prob))
+        return _clip01(float(prob)), "fallback"
 
     # ---------- public API ----------
     def predict(self, indicators: Dict[str, Any], market_trend: int = 0) -> Dict[str, Any]:
@@ -361,6 +370,7 @@ class SellBrain:
                 "mt_weight": float(self._weight_by_regime.get(regime, 0.20)),
                 "pred_sellscore": None,
                 "sell_threshold": None,
+                "prob_source": None,
             }
 
         row = np.array([_safe_float(indicators.get(c), np.nan) for c in feats], dtype=float)
@@ -370,7 +380,7 @@ class SellBrain:
         sell_thr = float(sell_signal["sell_threshold"])
         prob_thr = float(_safe_float(sell_signal.get("prob_threshold"), self._default_prob_thr))
 
-        prob = self._calibrated_prob(payload, pred_sellscore=pred_sellscore, sell_threshold=sell_thr)
+        prob, prob_source = self._calibrated_prob(payload, pred_sellscore=pred_sellscore, sell_threshold=sell_thr)
         sig = bool(prob >= prob_thr)
         gate = _gate_from_prob(prob, prob_thr)
 
@@ -384,6 +394,7 @@ class SellBrain:
             "mt_weight": float(self._weight_by_regime.get(regime, 0.20)),
             "pred_sellscore": float(pred_sellscore),
             "sell_threshold": float(sell_thr),
+            "prob_source": prob_source,
         }
 
 
@@ -426,6 +437,7 @@ def run_batch_predictions(
             "pred_sellscore": pred.get("pred_sellscore"),
             "sell_threshold": pred.get("sell_threshold"),
             "model_type": pred.get("model_type"),
+            "prob_source": pred.get("prob_source"),
         }
 
         # passthrough useful columns if present
@@ -441,7 +453,7 @@ def run_batch_predictions(
         "Timestamp", "Ticker", "MarketTrend",
         "current_price", "pnl_pct",
         "mt_prob", "mt_prob_threshold", "mt_sell_signal", "mt_gate", "mt_weight",
-        "pred_sellscore", "sell_threshold", "model_type",
+        "pred_sellscore", "sell_threshold", "model_type", "prob_source",
         "avg_price", "shares", "invested_lei",
     ]
     cols = [c for c in preferred if c in out_df.columns] + [c for c in out_df.columns if c not in preferred]
@@ -459,7 +471,7 @@ def main():
     args = ap.parse_args()
 
     out = run_batch_predictions(args.input, args.output, model_dir=args.model_dir)
-    print(f"✅ Wrote MT predictions → {out}")
+    print(f"[OK] Wrote MT predictions -> {out}")
 
 
 if __name__ == "__main__":

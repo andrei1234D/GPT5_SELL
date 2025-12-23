@@ -19,6 +19,7 @@ for pkg in required:
 
 DATA_FILE = "bot/data.json"
 TRACKER_FILE = "bot/sell_alerts_tracker.json"
+
 keep_alive()
 
 # ---------------------------
@@ -55,7 +56,7 @@ def push_to_github(file_path, commit_message="Auto-update data.json from Discord
             content = f.read()
 
         r = requests.get(api_url, headers={"Authorization": f"token {GH_TOKEN}"})
-        sha = r.json().get("sha")
+        sha = (r.json() or {}).get("sha")
 
         data = {
             "message": commit_message,
@@ -75,14 +76,67 @@ def push_to_github(file_path, commit_message="Auto-update data.json from Discord
 
 
 # ---------------------------
-# Helpers
+# FX helpers (multi-currency; cached)
 # ---------------------------
-def get_fx_usdron(default=4.6):
+_FX_CACHE = {}
+_TICKER_CCY_CACHE = {}
+
+
+def get_fx_pair_to_ron(currency: str):
+    c = (currency or "").upper().strip()
+    if c in ("RON", "LEI"):
+        return None
+    if c == "USD":
+        return "USDRON=X"
+    if c == "EUR":
+        return "EURRON=X"
+    if c == "GBP":
+        return "GBPRON=X"
+    if c == "CHF":
+        return "CHFRON=X"
+    return None
+
+
+def get_ticker_currency(ticker: str) -> str:
+    if ticker in _TICKER_CCY_CACHE:
+        return _TICKER_CCY_CACHE[ticker]
+    ccy = "USD"
     try:
-        fx = yf.Ticker("USDRON=X").history(period="1d")
-        return float(fx["Close"].iloc[-1]) if not fx.empty else default
+        t = yf.Ticker(ticker)
+        fi = getattr(t, "fast_info", None) or {}
+        ccy = fi.get("currency") or ccy
+        if not ccy:
+            info = getattr(t, "info", {}) or {}
+            ccy = info.get("currency") or ccy
     except Exception:
-        return default
+        pass
+    ccy = (ccy or "USD").upper().strip()
+    _TICKER_CCY_CACHE[ticker] = ccy
+    return ccy
+
+
+def get_fx_to_ron(currency: str, default_usdron=4.6) -> float:
+    c = (currency or "").upper().strip()
+    if c in ("RON", "LEI"):
+        return 1.0
+    if c in _FX_CACHE:
+        return _FX_CACHE[c]
+    pair = get_fx_pair_to_ron(c)
+    if pair is None:
+        _FX_CACHE[c] = 1.0
+        return 1.0
+    try:
+        fx = yf.Ticker(pair).history(period="1d")
+        if not fx.empty:
+            v = float(fx["Close"].iloc[-1])
+            if v > 0:
+                _FX_CACHE[c] = v
+                return v
+    except Exception:
+        pass
+    fallback = default_usdron if c == "USD" else 1.0
+    _FX_CACHE[c] = fallback
+    return fallback
 
 
 def smooth_fx_toward(old_fx: float, new_fx: float, weight: float) -> float:
@@ -139,7 +193,7 @@ def pull_from_github(file_path=DATA_FILE):
 async def on_ready():
     try:
         pull_from_github(DATA_FILE)
-        pull_from_github(TRACKER_FILE)  # ✅ also sync tracker from GitHub
+        pull_from_github(TRACKER_FILE)
     except Exception as e:
         print(f"⚠️ Skipped GitHub pull at startup: {e}")
     print(f"✅ Logged in as {bot.user}")
@@ -151,15 +205,17 @@ async def on_ready():
 @bot.command()
 async def buy(ctx, ticker: str, price: float, lei_invested: float):
     """
-    Buy in LEI at a given USD price. Shares are computed via USD amount using current USDRON FX.
-    FX tracking (fx_rate_buy) is updated by smoothing toward today's FX based on the size of the buy
-    relative to the total invested LEI after the transaction.
+    Buy in LEI at a given USD price (legacy behavior).
+    Shares are computed via USD amount using current USDRON FX.
+
+    Note: If you add non-USD tickers, you should extend this command
+    to accept the quote currency explicitly.
     """
     ticker = ticker.upper()
     data = load_data()
     stocks = data["stocks"]
 
-    fx_rate = get_fx_usdron()
+    fx_rate = get_fx_to_ron("USD")
     usd_invested = lei_invested / fx_rate
     shares_bought = usd_invested / price
 
@@ -201,10 +257,9 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
 @bot.command()
 async def sell(ctx, ticker: str, price: float, amount: str):
     """
-    Sell at a given USD price.
+    Sell at a given USD price (legacy behavior).
     - 'amount' can be 'all' or a number in LEI (proceeds target).
     - Realized PnL is computed in LEI (includes FX).
-    - FX reference is smoothed toward today's FX based on the proportion of invested LEI being sold.
     """
     ticker = ticker.upper()
     data = load_data()
@@ -217,9 +272,9 @@ async def sell(ctx, ticker: str, price: float, amount: str):
     avg_price_usd = float(stocks[ticker]["avg_price"])
     invested_lei = float(stocks[ticker]["invested_lei"])
     total_shares = float(stocks[ticker]["shares"])
-    fx_ref = float(stocks[ticker].get("fx_rate_buy", get_fx_usdron()))
+    fx_ref = float(stocks[ticker].get("fx_rate_buy", get_fx_to_ron("USD")))
 
-    fx_sell = get_fx_usdron()
+    fx_sell = get_fx_to_ron("USD")
 
     if amount.lower() == "all":
         shares_sold = total_shares
@@ -274,17 +329,25 @@ async def sell(ctx, ticker: str, price: float, amount: str):
 
 @bot.command()
 async def list(ctx):
-    """Show all currently tracked stocks with Weak Streak, Score, and optional MT+SellIndex diagnostics."""
+    """
+    Show all currently tracked stocks with Weak Streak, Score, and MT+SellIndex diagnostics.
+    Aligned to the updated decision_engine tracker keys:
+      - last_mt
+      - last_mt_prob / last_mt_prob_thr / last_mt_gate
+      - last_mt_sell_signal / last_mt_model_type / last_mt_prob_source
+      - last_sell_index / last_score
+    """
     pull_from_github(DATA_FILE)
     pull_from_github(TRACKER_FILE)
 
     data = load_data()
-    stocks = data.get("stocks", {})
+    stocks = data.get("stocks", {}) or {}
 
     if not stocks:
         await ctx.send("📭 No stocks currently tracked.")
         return
 
+    # Tracker
     if os.path.exists(TRACKER_FILE):
         with open(TRACKER_FILE, "r") as f:
             try:
@@ -293,8 +356,6 @@ async def list(ctx):
                 tracker = {"tickers": {}}
     else:
         tracker = {"tickers": {}}
-
-    fx_live = get_fx_usdron()
 
     msg_lines = ["**📊 Currently Tracked Stocks:**\n"]
     total_unrealized_pnl = 0.0
@@ -305,36 +366,45 @@ async def list(ctx):
         shares = float(info.get("shares", 0))
         invested_lei = float(info.get("invested_lei", 0))
 
+        # Live price
         try:
             px = yf.Ticker(ticker).history(period="1d")
             current_price = float(px["Close"].iloc[-1]) if not px.empty else avg_price
         except Exception:
             current_price = avg_price
 
-        current_value_lei = current_price * shares * fx_live
+        # Multi-currency FX (or use last_fx_to_ron if stored)
+        state = (tracker.get("tickers", {}) or {}).get(ticker, {}) or {}
+        ccy = state.get("last_currency") or get_ticker_currency(ticker)
+        fx_to_ron = state.get("last_fx_to_ron")
+        if fx_to_ron is None:
+            fx_to_ron = get_fx_to_ron(ccy)
+
+        current_value_lei = current_price * shares * float(fx_to_ron)
         pnl_lei = current_value_lei - invested_lei
         total_unrealized_pnl += pnl_lei
 
-        state = tracker.get("tickers", {}).get(ticker, {})
         weak_streak = float(state.get("weak_streak", 0.0))
 
-        # ✅ Score: prefer persisted last_score, else average rolling_scores
+        # Score: prefer persisted last_score, else average rolling_scores
         score = state.get("last_score", None)
         if score is None:
             rolling = state.get("rolling_scores", []) or []
             score = (sum(rolling) / len(rolling)) if rolling else 0.0
         score = float(score)
 
-        # Optional newer fields from updated decision_engine
+        # Updated keys
         sell_index = state.get("last_sell_index", None)
-        mt_regime = state.get("last_mt_regime", None)
+        mt_regime = state.get("last_mt", None)
         mt_prob = state.get("last_mt_prob", None)
         mt_thr = state.get("last_mt_prob_thr", None)
         mt_gate = state.get("last_mt_gate", None)
-        label = state.get("last_signal_label", None)
-        checked = state.get("last_checked_time", state.get("last_checked_time", None))
+        mt_sell = state.get("last_mt_sell_signal", None)
+        mt_model = state.get("last_mt_model_type", None)
+        mt_src = state.get("last_mt_prob_source", None)
+        last_alert = state.get("last_alert_time", None)
 
-        # Risk emoji based on deterministic score (keeps your existing mental model)
+        # Risk emoji based on deterministic score
         if score < 2.5:
             risk_emoji = "🟢 Stable"
         elif score < 4.5:
@@ -350,13 +420,17 @@ async def list(ctx):
             "score": score,
             "emoji": risk_emoji,
             "pnl_lei": pnl_lei,
+            "ccy": ccy,
+            "fx": float(fx_to_ron),
             "sell_index": sell_index,
             "mt_regime": mt_regime,
             "mt_prob": mt_prob,
             "mt_thr": mt_thr,
             "mt_gate": mt_gate,
-            "label": label,
-            "checked": checked
+            "mt_sell": mt_sell,
+            "mt_model": mt_model,
+            "mt_src": mt_src,
+            "last_alert": last_alert,
         })
 
     stock_list.sort(key=lambda x: x["score"], reverse=True)
@@ -366,10 +440,9 @@ async def list(ctx):
         msg_lines.append(
             f"**{s['ticker']}** — {s['emoji']}\n"
             f"    Weak {s['weak']:.1f}/3 | Score {s['score']:.1f}\n"
-            f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} LEI\n"
+            f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} LEI ({s['ccy']}→RON fx={s['fx']:.4f})\n"
         )
 
-        # ✅ Extra diagnostics (only if present)
         if s["sell_index"] is not None:
             try:
                 msg_lines.append(f"    🧠 SellIndex: {float(s['sell_index']):.2f}\n")
@@ -379,15 +452,15 @@ async def list(ctx):
         if s["mt_regime"] is not None and s["mt_prob"] is not None:
             thr_txt = f"{float(s['mt_thr']):.2f}" if s["mt_thr"] is not None else "n/a"
             gate_txt = f"{float(s['mt_gate']):.2f}" if s["mt_gate"] is not None else "n/a"
+            sell_txt = "SELL" if bool(s["mt_sell"]) else "NO-SELL"
+            model_txt = s["mt_model"] or "?"
+            src_txt = s["mt_src"] or "?"
             msg_lines.append(
-                f"    📌 MT {int(s['mt_regime']):+d} | prob {float(s['mt_prob']):.2f} (thr {thr_txt}) | gate {gate_txt}\n"
+                f"    🤖 MT {int(s['mt_regime']):+d} | {sell_txt} | prob {float(s['mt_prob']):.2f} (thr {thr_txt}) | gate {gate_txt} | {model_txt} | src={src_txt}\n"
             )
 
-        if s["label"]:
-            msg_lines.append(f"    🏷️ {s['label']}\n")
-
-        if s["checked"]:
-            msg_lines.append(f"    🕒 {s['checked']}\n")
+        if s["last_alert"]:
+            msg_lines.append(f"    🚨 Last alert: {s['last_alert']}\n")
 
     realized_pnl = float(data.get("realized_pnl", 0.0))
     pnl_sign_unrealized = "+" if total_unrealized_pnl >= 0 else ""
@@ -409,7 +482,7 @@ async def list(ctx):
 @bot.command()
 async def pnl(ctx):
     data = load_data()
-    await ctx.send(f"💰 **Cumulative Realized PnL:** {data['realized_pnl']:.2f} LEI")
+    await ctx.send(f"💰 **Cumulative Realized PnL:** {float(data.get('realized_pnl', 0.0)):.2f} LEI")
 
 
 # ---------------------------
