@@ -528,7 +528,7 @@ async def list(ctx):
 
         if s["sell_index"] is not None:
             try:
-                msg_lines.append(f"    🧠 SellIndex: {float(s['sell_index']):.2f}\n")
+                msg_lines.append(f"    🧠 Sell Index: {float(s['sell_index']):.2f}\n / 0.65")
             except Exception:
                 pass
 
