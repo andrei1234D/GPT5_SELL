@@ -26,10 +26,9 @@
     },
     "III.TO": {
       "avg_price": 6.79,
-      "shares": 74.80602618556702,
+      "shares": 53.390972609083356,
       "invested_lei": 1595.0,
-      "fx_rate_buy": 3.1401784450363888,
-      "currency": "CAD"
+      "fx_rate_buy": 0.31845324
     },
     "KEP": {
       "avg_price": 16.419337449697537,

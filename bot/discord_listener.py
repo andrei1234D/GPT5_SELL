@@ -1,16 +1,25 @@
 import os
 import json
-import discord
-from discord.ext import commands
-from keep_alive import keep_alive
-import subprocess, sys
 import base64
+import subprocess
+import sys
+from threading import Thread
+from datetime import datetime, timedelta
+
 import requests
 import yfinance as yf
-from threading import Thread
+import discord
+from discord.ext import commands
+
+from keep_alive import keep_alive
+
+# ---------------------------
+# Version banner (helps confirm the running code)
+# ---------------------------
+BOT_VERSION = "2025-12-23 fx-fix-v1"
 
 # ✅ Auto-install required packages if missing
-required = ["discord.py", "requests"]
+required = ["discord.py", "requests", "yfinance"]
 for pkg in required:
     try:
         __import__(pkg.replace("-", "_").split(".")[0])
@@ -27,19 +36,19 @@ keep_alive()
 # ---------------------------
 def load_data():
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {"stocks": {}, "realized_pnl": 0.0}
 
 
 def save_data(data):
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, "w") as f:
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
 
 # ---------------------------
-# GitHub API Push
+# GitHub API Push/Pull
 # ---------------------------
 def push_to_github(file_path, commit_message="Auto-update data.json from Discord bot"):
     try:
@@ -52,13 +61,17 @@ def push_to_github(file_path, commit_message="Auto-update data.json from Discord
         branch = "main"
         api_url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
 
-        with open(file_path, "r") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         r = requests.get(api_url, headers={"Authorization": f"token {GH_TOKEN}"})
         sha = (r.json() or {}).get("sha")
 
-        data = {"message": commit_message, "content": base64.b64encode(content.encode()).decode(), "branch": branch}
+        data = {
+            "message": commit_message,
+            "content": base64.b64encode(content.encode()).decode(),
+            "branch": branch
+        }
         if sha:
             data["sha"] = sha
 
@@ -71,72 +84,8 @@ def push_to_github(file_path, commit_message="Auto-update data.json from Discord
         print(f"⚠️ Error pushing to GitHub: {e}")
 
 
-# ---------------------------
-# FX helpers (multi-currency; cached)
-# ---------------------------
-_FX_CACHE = {}
-_TICKER_CCY_CACHE = {}
-
-def _fx_pair_to_ron(currency: str):
-    c = (currency or "").upper().strip()
-    if c in ("RON", "LEI"):
-        return None
-    if c == "USD":
-        return "USDRON=X"
-    if c == "EUR":
-        return "EURRON=X"
-    if c == "GBP":
-        return "GBPRON=X"
-    if c == "CHF":
-        return "CHFRON=X"
-    if c == "CAD":
-        return "CADRON=X"
-    return None
-
-
-def get_ticker_currency(ticker: str) -> str:
-    if ticker in _TICKER_CCY_CACHE:
-        return _TICKER_CCY_CACHE[ticker]
-    ccy = "USD"
-    try:
-        t = yf.Ticker(ticker)
-        fi = getattr(t, "fast_info", None) or {}
-        ccy = fi.get("currency") or ccy
-        if not ccy:
-            info = getattr(t, "info", {}) or {}
-            ccy = info.get("currency") or ccy
-    except Exception:
-        pass
-    ccy = (ccy or "USD").upper().strip()
-    _TICKER_CCY_CACHE[ticker] = ccy
-    return ccy
-
-
-def get_fx_to_ron(currency: str, default_usdron=4.6) -> float:
-    c = (currency or "").upper().strip()
-    if c in ("RON", "LEI"):
-        return 1.0
-    if c in _FX_CACHE:
-        return _FX_CACHE[c]
-    pair = _fx_pair_to_ron(c)
-    if pair is None:
-        _FX_CACHE[c] = 1.0
-        return 1.0
-    try:
-        fx = yf.Ticker(pair).history(period="1d")
-        if not fx.empty:
-            v = float(fx["Close"].iloc[-1])
-            if v > 0:
-                _FX_CACHE[c] = v
-                return v
-    except Exception:
-        pass
-    fallback = default_usdron if c == "USD" else 1.0
-    _FX_CACHE[c] = fallback
-    return fallback
-
-
-def pull_from_github(file_path=DATA_FILE):
+def pull_from_github(file_path):
+    """Fetch latest file from GitHub repo and overwrite local copy."""
     try:
         GH_TOKEN = os.getenv("GH_TOKEN")
         if not GH_TOKEN:
@@ -156,7 +105,7 @@ def pull_from_github(file_path=DATA_FILE):
             content = base64.b64decode(response_json["content"]).decode()
 
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            with open(file_path, "w") as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
             print(f"✅ Pulled latest {file_path} from GitHub")
         else:
@@ -166,11 +115,124 @@ def pull_from_github(file_path=DATA_FILE):
 
 
 # ---------------------------
+# FX helpers (multi-currency; live-first, fallback to last-known)
+# ---------------------------
+_FX_CACHE = {}  # currency -> (rate_to_ron, ts_utc)
+_TICKER_CCY_CACHE = {}  # ticker -> currency
+
+
+def _fx_pair_to_ron(currency: str):
+    c = (currency or "").upper().strip()
+    if c in ("RON", "LEI"):
+        return None
+    # yfinance FX symbols (direct to RON if available)
+    if c == "USD":
+        return "USDRON=X"
+    if c == "EUR":
+        return "EURRON=X"
+    if c == "GBP":
+        return "GBPRON=X"
+    if c == "CHF":
+        return "CHFRON=X"
+    if c == "CAD":
+        return "CADRON=X"
+    return None
+
+
+def get_ticker_currency(ticker: str) -> str:
+    t = (ticker or "").upper().strip()
+    if t in _TICKER_CCY_CACHE:
+        return _TICKER_CCY_CACHE[t]
+    ccy = "USD"
+    try:
+        yt = yf.Ticker(t)
+        fi = getattr(yt, "fast_info", None) or {}
+        ccy = fi.get("currency") or ccy
+        if not ccy:
+            info = getattr(yt, "info", {}) or {}
+            ccy = info.get("currency") or ccy
+    except Exception:
+        pass
+    ccy = (ccy or "USD").upper().strip()
+    _TICKER_CCY_CACHE[t] = ccy
+    return ccy
+
+
+def _read_fx_close(symbol: str):
+    try:
+        fx = yf.Ticker(symbol).history(period="1d")
+        if fx is not None and (not fx.empty) and ("Close" in fx.columns):
+            v = float(fx["Close"].iloc[-1])
+            if v > 0:
+                return v
+    except Exception:
+        return None
+    return None
+
+
+def get_fx_to_ron(currency: str, *, fallback: float | None = None, ttl_minutes: int = 20) -> float:
+    """
+    Returns: RON per 1 unit of `currency` (e.g., CAD->RON).
+    Behavior: live-first; if live fails, use cached; else use provided fallback; else 1.0.
+    """
+    c = (currency or "").upper().strip()
+    if c in ("RON", "LEI"):
+        return 1.0
+
+    # Cache
+    now = datetime.utcnow()
+    if c in _FX_CACHE:
+        rate, ts = _FX_CACHE[c]
+        if isinstance(ts, datetime) and (now - ts) <= timedelta(minutes=ttl_minutes) and rate > 0:
+            return float(rate)
+
+    # 1) Direct pair to RON
+    pair = _fx_pair_to_ron(c)
+    if pair:
+        v = _read_fx_close(pair)
+        if v is not None:
+            _FX_CACHE[c] = (float(v), now)
+            return float(v)
+
+    # 2) Cross via USD if direct missing/fails
+    #    Option A: CCYUSD=X gives USD per 1 CCY
+    usdron = _read_fx_close("USDRON=X") or None
+    if usdron is not None:
+        cross = None
+        v1 = _read_fx_close(f"{c}USD=X")
+        if v1 is not None:
+            cross = float(v1) * float(usdron)  # (USD/CCY)*(RON/USD) = RON/CCY
+        else:
+            # Option B: USDC CY = CCY per USD => invert
+            v2 = _read_fx_close(f"USD{c}=X")
+            if v2 is not None and float(v2) > 0:
+                cross = (1.0 / float(v2)) * float(usdron)
+
+        if cross is not None and cross > 0:
+            _FX_CACHE[c] = (float(cross), now)
+            return float(cross)
+
+    # 3) Fallbacks
+    if c in _FX_CACHE:
+        rate, _ = _FX_CACHE[c]
+        if rate and rate > 0:
+            return float(rate)
+
+    if fallback is not None and fallback > 0:
+        _FX_CACHE[c] = (float(fallback), now)
+        return float(fallback)
+
+    # conservative fallback (prevents blowing up PnL)
+    return 1.0
+
+
+# ---------------------------
 # Discord Bot Setup
 # ---------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
 
 @bot.event
 async def on_ready():
@@ -179,17 +241,178 @@ async def on_ready():
         pull_from_github(TRACKER_FILE)
     except Exception as e:
         print(f"⚠️ Skipped GitHub pull at startup: {e}")
-    print(f"✅ Logged in as {bot.user}")
+    print(f"✅ Logged in as {bot.user} | version={BOT_VERSION}")
 
 
 # ---------------------------
 # Bot Commands
 # ---------------------------
 @bot.command()
+async def buy(ctx, ticker: str, price: float, lei_invested: float):
+    """
+    Multi-currency BUY:
+      - `price` is assumed to be in the ticker's quote currency (as returned by yfinance currency).
+      - shares = (lei_invested / FX_to_RON(currency)) / price
+
+    Stored fields per ticker:
+      - avg_price: in quote currency
+      - shares: shares
+      - invested_lei: in RON
+      - currency: quote currency (USD/CAD/...)
+      - fx_rate_buy: quote_currency->RON rate at (weighted) buy time
+    """
+    t = ticker.upper().strip()
+    data = load_data()
+    stocks = data.get("stocks", {}) or {}
+
+    ccy = get_ticker_currency(t)
+    fx_now = get_fx_to_ron(ccy)
+
+    if fx_now <= 0:
+        await ctx.send(f"⚠️ FX unavailable for {ccy}. Try again later.")
+        return
+
+    ccy_amount = lei_invested / fx_now
+    shares_bought = ccy_amount / price if price > 0 else 0.0
+
+    if shares_bought <= 0:
+        await ctx.send("⚠️ Invalid buy. Check price and invested amount.")
+        return
+
+    if t in stocks:
+        old_price = float(stocks[t].get("avg_price", price))
+        old_shares = float(stocks[t].get("shares", 0.0))
+        old_invested = float(stocks[t].get("invested_lei", 0.0))
+        old_fx = float(stocks[t].get("fx_rate_buy", fx_now))
+        old_ccy = (stocks[t].get("currency") or ccy).upper().strip()
+
+        # if currency changed unexpectedly, keep the new one but avoid mixing silently
+        if old_ccy != ccy:
+            await ctx.send(f"⚠️ Currency mismatch for {t} (stored {old_ccy}, live {ccy}). Not updating.")
+            return
+
+        new_shares = old_shares + shares_bought
+        new_invested = old_invested + lei_invested
+
+        avg_price = ((old_price * old_shares) + (price * shares_bought)) / new_shares if new_shares > 0 else price
+
+        # smooth fx_rate_buy toward today's fx based on the relative size of the new buy
+        weight = (lei_invested / new_invested) if new_invested > 0 else 1.0
+        new_fx = old_fx * (1 - weight) + fx_now * weight
+
+        stocks[t]["avg_price"] = float(avg_price)
+        stocks[t]["shares"] = float(new_shares)
+        stocks[t]["invested_lei"] = float(new_invested)
+        stocks[t]["currency"] = ccy
+        stocks[t]["fx_rate_buy"] = float(new_fx)
+    else:
+        stocks[t] = {
+            "avg_price": float(price),
+            "shares": float(shares_bought),
+            "invested_lei": float(lei_invested),
+            "currency": ccy,
+            "fx_rate_buy": float(fx_now),
+        }
+
+    data["stocks"] = stocks
+    save_data(data)
+    push_to_github(DATA_FILE, f"BUY {lei_invested} RON of {t} @ {price} {ccy} (FX {fx_now:.4f} RON/{ccy})")
+
+    await ctx.send(
+        f"✅ BUY **{t}** | Avg {stocks[t]['avg_price']:.2f} {ccy} | Shares {stocks[t]['shares']:.4f} | "
+        f"Invested {stocks[t]['invested_lei']:.2f} RON | FX(ref) {stocks[t]['fx_rate_buy']:.4f} RON/{ccy} "
+        f"(live {fx_now:.4f})"
+    )
+
+
+@bot.command()
+async def sell(ctx, ticker: str, price: float, amount: str):
+    """
+    Multi-currency SELL:
+      - `price` is in the ticker's quote currency.
+      - `amount` is "all" or a LEI proceeds target.
+      - Realized PnL is computed in RON.
+
+    Note: This maintains your original approach (cost basis in invested_lei * share_ratio).
+    """
+    t = ticker.upper().strip()
+    data = load_data()
+    stocks = data.get("stocks", {}) or {}
+
+    if t not in stocks:
+        await ctx.send(f"⚠️ {t} is not being tracked.")
+        return
+
+    avg_price_ccy = float(stocks[t].get("avg_price", 0))
+    invested_lei = float(stocks[t].get("invested_lei", 0))
+    total_shares = float(stocks[t].get("shares", 0))
+    ccy = (stocks[t].get("currency") or get_ticker_currency(t)).upper().strip()
+    fx_ref = float(stocks[t].get("fx_rate_buy", get_fx_to_ron(ccy)))
+
+    fx_sell = get_fx_to_ron(ccy, fallback=fx_ref)
+    if fx_sell <= 0:
+        await ctx.send(f"⚠️ FX unavailable for {ccy}. Try again later.")
+        return
+
+    if amount.lower() == "all":
+        shares_sold = total_shares
+        proceeds_ccy = shares_sold * price
+        proceeds_lei = proceeds_ccy * fx_sell
+    else:
+        try:
+            proceeds_lei = float(amount)
+        except ValueError:
+            await ctx.send("⚠️ Invalid amount. Use a number (RON proceeds) or 'all'.")
+            return
+        if proceeds_lei <= 0:
+            await ctx.send("⚠️ Amount must be positive.")
+            return
+
+        proceeds_ccy = proceeds_lei / fx_sell
+        shares_sold = proceeds_ccy / price if price > 0 else 0.0
+
+        if shares_sold > total_shares + 1e-9:
+            await ctx.send(f"⚠️ Not enough shares. You have {total_shares:.4f} shares.")
+            return
+
+    share_ratio = (shares_sold / total_shares) if total_shares > 0 else 0.0
+    cost_basis_lei = invested_lei * share_ratio
+
+    pnl_lei = proceeds_lei - cost_basis_lei
+    data["realized_pnl"] = float(data.get("realized_pnl", 0.0)) + pnl_lei
+
+    remaining_shares = total_shares - shares_sold
+    if remaining_shares <= 1e-9:
+        del stocks[t]
+    else:
+        # smooth fx reference toward sell fx proportionally to the sold cost basis
+        weight = (cost_basis_lei / invested_lei) if invested_lei > 0 else 1.0
+        new_fx = fx_ref * (1 - weight) + fx_sell * weight
+
+        stocks[t]["shares"] = float(remaining_shares)
+        stocks[t]["invested_lei"] = float(invested_lei - cost_basis_lei)
+        stocks[t]["avg_price"] = float(avg_price_ccy)
+        stocks[t]["currency"] = ccy
+        stocks[t]["fx_rate_buy"] = float(new_fx)
+
+    data["stocks"] = stocks
+    save_data(data)
+    push_to_github(DATA_FILE, f"SELL {amount.upper()} of {t} @ {price} {ccy} (FX {fx_sell:.4f} RON/{ccy})")
+
+    await ctx.send(
+        f"💸 SELL **{t}**\n"
+        f"Price: {price:.2f} {ccy} | Proceeds: {proceeds_lei:.2f} RON | FX: {fx_sell:.4f} RON/{ccy}\n"
+        f"PnL (realized): {pnl_lei:+.2f} RON\n"
+        f"📊 Cumulative Realized PnL: {float(data.get('realized_pnl', 0.0)):.2f} RON"
+        + ("" if t not in stocks else f"\n🔁 FX ref after smoothing: {stocks[t]['fx_rate_buy']:.4f} RON/{ccy}")
+    )
+
+
+@bot.command()
 async def list(ctx):
     """
     Show tracked stocks with Weak Streak, deterministic Score, SellIndex, and ML diagnostics.
-    Uses tracker fields written by decision_engine.py.
+    FX behavior: live-first; if live fails, fall back to tracker last_fx_to_ron, then data.json fx_rate_buy.
     """
     pull_from_github(DATA_FILE)
     pull_from_github(TRACKER_FILE)
@@ -201,7 +424,7 @@ async def list(ctx):
         return
 
     if os.path.exists(TRACKER_FILE):
-        with open(TRACKER_FILE, "r") as f:
+        with open(TRACKER_FILE, "r", encoding="utf-8") as f:
             try:
                 tracker = json.load(f)
             except json.JSONDecodeError:
@@ -209,32 +432,45 @@ async def list(ctx):
     else:
         tracker = {"tickers": {}}
 
-    msg_lines = ["**📊 Currently Tracked Stocks:**\n"]
+    msg_lines = [f"**📊 Currently Tracked Stocks:** (v={BOT_VERSION})\n"]
     total_unrealized_pnl = 0.0
     stock_list = []
 
     for ticker, info in stocks.items():
+        t = str(ticker).upper().strip()
         avg_price = float(info.get("avg_price", 0))
         shares = float(info.get("shares", 0))
         invested_lei = float(info.get("invested_lei", 0))
 
+        # live close
         try:
-            px = yf.Ticker(ticker).history(period="1d")
-            current_price = float(px["Close"].iloc[-1]) if not px.empty else avg_price
+            px = yf.Ticker(t).history(period="1d")
+            current_price = float(px["Close"].iloc[-1]) if (px is not None and (not px.empty)) else avg_price
         except Exception:
             current_price = avg_price
 
-        state = (tracker.get("tickers", {}) or {}).get(ticker, {}) or {}
-        ccy = state.get("last_currency") or get_ticker_currency(ticker)
-        fx_to_ron = state.get("last_fx_to_ron")
-        if fx_to_ron is None:
-            fx_to_ron = get_fx_to_ron(ccy)
+        state = (tracker.get("tickers", {}) or {}).get(t, {}) or {}
+
+        # Currency precedence: data.json -> tracker -> yfinance
+        ccy = (info.get("currency") or state.get("last_currency") or get_ticker_currency(t) or "USD").upper().strip()
+
+        # FX: live-first, fallback to tracker, then data.json fx_rate_buy
+        fx_fallback = None
+        if state.get("last_fx_to_ron") is not None:
+            fx_fallback = float(state.get("last_fx_to_ron"))
+        elif state.get("last_fx_to_lei") is not None:  # legacy key
+            fx_fallback = float(state.get("last_fx_to_lei"))
+        elif info.get("fx_rate_buy") is not None:
+            fx_fallback = float(info.get("fx_rate_buy"))
+
+        fx_to_ron = get_fx_to_ron(ccy, fallback=fx_fallback)
 
         current_value_lei = current_price * shares * float(fx_to_ron)
         pnl_lei = current_value_lei - invested_lei
         total_unrealized_pnl += pnl_lei
 
         weak_streak = float(state.get("weak_streak", 0.0))
+
         score = state.get("last_score", None)
         if score is None:
             rolling = state.get("rolling_scores", []) or []
@@ -242,15 +478,16 @@ async def list(ctx):
         score = float(score)
 
         sell_index = state.get("last_sell_index", None)
-        mt_regime = state.get("last_mt", None)
+        mt_regime = state.get("last_mt", state.get("last_mt_regime", None))
         mt_prob = state.get("last_mt_prob", None)
         mt_thr = state.get("last_mt_prob_thr", None)
-        mt_score = state.get("last_mt_gate", None)   # show as "ML score"
+        mt_gate = state.get("last_mt_gate", None)
         mt_sell = state.get("last_mt_sell_signal", None)
         mt_model = state.get("last_mt_model_type", None)
         mt_src = state.get("last_mt_prob_source", None)
         last_alert = state.get("last_alert_time", None)
 
+        # risk emoji based on deterministic score
         if score < 2.5:
             risk_emoji = "🟢 Stable"
         elif score < 4.5:
@@ -261,7 +498,7 @@ async def list(ctx):
             risk_emoji = "🔴 Critical"
 
         stock_list.append({
-            "ticker": ticker,
+            "ticker": t,
             "weak": weak_streak,
             "score": score,
             "emoji": risk_emoji,
@@ -272,7 +509,7 @@ async def list(ctx):
             "mt_regime": mt_regime,
             "mt_prob": mt_prob,
             "mt_thr": mt_thr,
-            "mt_score": mt_score,
+            "mt_gate": mt_gate,
             "mt_sell": mt_sell,
             "mt_model": mt_model,
             "mt_src": mt_src,
@@ -286,7 +523,7 @@ async def list(ctx):
         msg_lines.append(
             f"**{s['ticker']}** — {s['emoji']}\n"
             f"    Weak {s['weak']:.1f}/3 | Score {s['score']:.1f}\n"
-            f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} LEI ({s['ccy']}→RON fx={s['fx']:.4f})\n"
+            f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} RON ({s['ccy']}→RON fx={s['fx']:.4f})\n"
         )
 
         if s["sell_index"] is not None:
@@ -297,13 +534,13 @@ async def list(ctx):
 
         if s["mt_regime"] is not None and s["mt_prob"] is not None:
             thr_txt = f"{float(s['mt_thr']):.2f}" if s["mt_thr"] is not None else "n/a"
-            score_txt = f"{float(s['mt_score']):.2f}" if s["mt_score"] is not None else "n/a"
+            gate_txt = f"{float(s['mt_gate']):.2f}" if s["mt_gate"] is not None else "n/a"
             sell_txt = "SELL" if bool(s["mt_sell"]) else "NO-SELL"
             model_txt = s["mt_model"] or "?"
             src_txt = s["mt_src"] or "?"
             msg_lines.append(
                 f"    🤖 MT {int(s['mt_regime']):+d} | {sell_txt} | P {float(s['mt_prob']):.2f} (thr {thr_txt}) | "
-                f"ML score {score_txt} | {model_txt} | src={src_txt}\n"
+                f"Gate {gate_txt} | {model_txt} | src={src_txt}\n"
             )
 
         if s["last_alert"]:
@@ -313,8 +550,8 @@ async def list(ctx):
     pnl_sign_unrealized = "+" if total_unrealized_pnl >= 0 else ""
     pnl_sign_realized = "+" if realized_pnl >= 0 else ""
 
-    msg_lines.append(f"📈 **Unrealized PnL (open positions):** {pnl_sign_unrealized}{total_unrealized_pnl:.2f} LEI")
-    msg_lines.append(f"💰 **Cumulative Realized PnL:** {pnl_sign_realized}{realized_pnl:.2f} LEI")
+    msg_lines.append(f"📈 **Unrealized PnL (open positions):** {pnl_sign_unrealized}{total_unrealized_pnl:.2f} RON")
+    msg_lines.append(f"💰 **Cumulative Realized PnL:** {pnl_sign_realized}{realized_pnl:.2f} RON")
 
     msg = "\n".join(msg_lines)
     if len(msg) > 1900:
@@ -327,7 +564,7 @@ async def list(ctx):
 @bot.command()
 async def pnl(ctx):
     data = load_data()
-    await ctx.send(f"💰 **Cumulative Realized PnL:** {float(data.get('realized_pnl', 0.0)):.2f} LEI")
+    await ctx.send(f"💰 **Cumulative Realized PnL:** {float(data.get('realized_pnl', 0.0)):.2f} RON")
 
 
 # ---------------------------
@@ -337,8 +574,9 @@ if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_BOT_TOKEN")
     if not TOKEN:
         print("❌ ERROR: DISCORD_BOT_TOKEN is not set")
-    else:
-        print("✅ DISCORD_BOT_TOKEN found, length:", len(TOKEN))
-        print("Preview:", TOKEN[:8], "...")
-        Thread(target=keep_alive).start()
-        bot.run(TOKEN)
+        raise SystemExit(1)
+
+    print("✅ DISCORD_BOT_TOKEN found, length:", len(TOKEN))
+    print("Preview:", TOKEN[:8], "...")
+    Thread(target=keep_alive).start()
+    bot.run(TOKEN)
