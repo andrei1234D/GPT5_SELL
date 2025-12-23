@@ -306,26 +306,30 @@ class SellBrain:
         }
 
     # ---------- model prediction ----------
-    def _predict_sellscore(self, payload: Any, X_row: np.ndarray) -> float:
+    def _predict_sellscore(self, payload: Any, X_row_df: pd.DataFrame) -> float:
         """
         Supports:
-          - dict payload saved by your trainer (XGB or ET pipeline)
-          - raw sklearn estimator
+          - dict payload saved by your trainer
+          - raw sklearn pipeline estimator
+
+        IMPORTANT: Use a 1-row DataFrame to preserve feature names.
+        This avoids sklearn "X does not have valid feature names" warnings
+        and reduces the risk of column-order mismatch.
         """
         if not isinstance(payload, dict):
-            return float(payload.predict(X_row.reshape(1, -1))[0])
+            return float(payload.predict(X_row_df)[0])
 
         mtype = payload.get("model_type")
 
         if mtype == "XGB":
             booster = payload["model"]["booster"]
             imp = payload["model"]["imputer"]
-            X_imp = imp.transform(X_row.reshape(1, -1))
+            X_imp = imp.transform(X_row_df)
             import xgboost as xgb
             return float(booster.predict(xgb.DMatrix(X_imp))[0])
 
         model = payload.get("model", payload)
-        return float(model.predict(X_row.reshape(1, -1))[0])
+        return float(model.predict(X_row_df)[0])
 
     def _calibrated_prob(self, payload: Any, pred_sellscore: float, sell_threshold: float) -> tuple[float, str]:
         """
@@ -373,8 +377,12 @@ class SellBrain:
                 "prob_source": None,
             }
 
-        row = np.array([_safe_float(indicators.get(c), np.nan) for c in feats], dtype=float)
-        pred_sellscore = self._predict_sellscore(payload, row)
+        row_df = pd.DataFrame([{c: _safe_float(indicators.get(c), np.nan) for c in feats}])
+        # Ensure numeric (keeps NaN for imputer)
+        for c in feats:
+            row_df[c] = pd.to_numeric(row_df[c], errors="coerce")
+
+        pred_sellscore = self._predict_sellscore(payload, row_df)
 
         sell_signal = meta["sell_signal"]
         sell_thr = float(sell_signal["sell_threshold"])

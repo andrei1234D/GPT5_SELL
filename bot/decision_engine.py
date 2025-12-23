@@ -4,6 +4,20 @@ import os
 import subprocess
 from datetime import datetime
 
+
+
+# ---------------------------
+# Small utilities
+# ---------------------------
+def _safe_float(x, default=None):
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str) and x.strip() == "":
+            return default
+        return float(x)
+    except Exception:
+        return default
 import numpy as np
 import pandas as pd
 import yfinance as yf
