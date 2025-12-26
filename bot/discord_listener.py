@@ -16,7 +16,7 @@ from keep_alive import keep_alive
 # ---------------------------
 # Version banner (helps confirm the running code)
 # ---------------------------
-BOT_VERSION = "2025-12-26 chunk-safe-list-v1"
+BOT_VERSION = "2025-12-26 chunk-safe-list-v2-sellindex-sort"
 
 # ✅ Auto-install required packages if missing
 required = ["discord.py", "requests", "yfinance"]
@@ -125,7 +125,6 @@ def _fx_pair_to_ron(currency: str):
     c = (currency or "").upper().strip()
     if c in ("RON", "LEI"):
         return None
-    # yfinance FX symbols (direct to RON if available)
     if c == "USD":
         return "USDRON=X"
     if c == "EUR":
@@ -199,13 +198,10 @@ def get_fx_to_ron(currency: str, *, fallback: float | None = None, ttl_minutes: 
     usdron = _read_fx_close("USDRON=X") or None
     if usdron is not None:
         cross = None
-
-        # Option A: CCYUSD=X gives USD per 1 CCY
         v1 = _read_fx_close(f"{c}USD=X")
         if v1 is not None:
-            cross = float(v1) * float(usdron)  # (USD/CCY)*(RON/USD) = RON/CCY
+            cross = float(v1) * float(usdron)
         else:
-            # Option B: USDCCY=X gives CCY per 1 USD => invert
             v2 = _read_fx_close(f"USD{c}=X")
             if v2 is not None and float(v2) > 0:
                 cross = (1.0 / float(v2)) * float(usdron)
@@ -224,7 +220,6 @@ def get_fx_to_ron(currency: str, *, fallback: float | None = None, ttl_minutes: 
         _FX_CACHE[c] = (float(fallback), now)
         return float(fallback)
 
-    # conservative fallback (prevents blowing up PnL)
     return 1.0
 
 
@@ -234,7 +229,6 @@ def get_fx_to_ron(currency: str, *, fallback: float | None = None, ttl_minutes: 
 def _segments_len(segs: list[str]) -> int:
     if not segs:
         return 0
-    # +1 newline between segments
     return sum(len(s) for s in segs) + (len(segs) - 1)
 
 
@@ -250,20 +244,17 @@ async def send_chunked_blocks(ctx, header: str, blocks: list[str], totals: str, 
     """
     chunks: list[list[str]] = [[header]] if header else [[]]
 
-    # Place ticker blocks without splitting any block
     for b in blocks:
         if _segments_len(chunks[-1] + [b]) <= limit:
             chunks[-1].append(b)
         else:
             chunks.append([b])
 
-    # Append totals to the last chunk; if overflow, move last ticker block(s) forward
     while _segments_len(chunks[-1] + [totals]) > limit:
         if len(chunks[-1]) > 1:
             moved = chunks[-1].pop()
             chunks.append([moved])
         else:
-            # Can't move anything (only header or single block). Totals will go alone.
             break
 
     if _segments_len(chunks[-1] + [totals]) <= limit:
@@ -271,7 +262,6 @@ async def send_chunked_blocks(ctx, header: str, blocks: list[str], totals: str, 
     else:
         chunks.append([totals])
 
-    # Send
     for segs in chunks:
         msg = "\n".join(segs).strip()
         if msg:
@@ -301,18 +291,6 @@ async def on_ready():
 # ---------------------------
 @bot.command()
 async def buy(ctx, ticker: str, price: float, lei_invested: float):
-    """
-    Multi-currency BUY:
-      - `price` is assumed to be in the ticker's quote currency (as returned by yfinance currency).
-      - shares = (lei_invested / FX_to_RON(currency)) / price
-
-    Stored fields per ticker:
-      - avg_price: in quote currency
-      - shares: shares
-      - invested_lei: in RON
-      - currency: quote currency (USD/CAD/...)
-      - fx_rate_buy: quote_currency->RON rate at (weighted) buy time
-    """
     t = ticker.upper().strip()
     data = load_data()
     stocks = data.get("stocks", {}) or {}
@@ -376,12 +354,6 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
 
 @bot.command()
 async def sell(ctx, ticker: str, price: float, amount: str):
-    """
-    Multi-currency SELL:
-      - `price` is in the ticker's quote currency.
-      - `amount` is "all" or a LEI proceeds target.
-      - Realized PnL is computed in RON.
-    """
     t = ticker.upper().strip()
     data = load_data()
     stocks = data.get("stocks", {}) or {}
@@ -459,9 +431,11 @@ async def list(ctx):
     """
     Show tracked stocks with Weak Streak, deterministic Score, SellIndex, and ML diagnostics.
 
-    Chunking rule (your requirement):
-      - NEVER split a ticker block across messages.
-      - If totals don't fit, move the last ticker block into the next message and append totals there.
+    IMPORTANT changes per your requirement:
+      - "Stable/Watch/Weak/Critical" is based on SellIndex (NOT Score).
+      - Ordering is by SellIndex descending (NOT Score).
+      - Layout stays the same.
+      - Chunking: NEVER split a ticker block; totals always at the very end.
     """
     pull_from_github(DATA_FILE)
     pull_from_github(TRACKER_FILE)
@@ -484,7 +458,6 @@ async def list(ctx):
     total_unrealized_pnl = 0.0
     stock_list = []
 
-    # Build stock_list (same as before, but output will be block-safe)
     for ticker, info in stocks.items():
         t = str(ticker).upper().strip()
         avg_price = float(info.get("avg_price", 0))
@@ -507,7 +480,7 @@ async def list(ctx):
         fx_fallback = None
         if state.get("last_fx_to_ron") is not None:
             fx_fallback = float(state.get("last_fx_to_ron"))
-        elif state.get("last_fx_to_lei") is not None:  # legacy key
+        elif state.get("last_fx_to_lei") is not None:
             fx_fallback = float(state.get("last_fx_to_lei"))
         elif info.get("fx_rate_buy") is not None:
             fx_fallback = float(info.get("fx_rate_buy"))
@@ -520,13 +493,21 @@ async def list(ctx):
 
         weak_streak = float(state.get("weak_streak", 0.0))
 
+        # score is still displayed, but NOT used for label or ordering anymore
         score = state.get("last_score", None)
         if score is None:
             rolling = state.get("rolling_scores", []) or []
             score = (sum(rolling) / len(rolling)) if rolling else 0.0
         score = float(score)
 
-        sell_index = state.get("last_sell_index", None)
+        sell_index_raw = state.get("last_sell_index", None)
+        sell_index = None
+        if sell_index_raw is not None:
+            try:
+                sell_index = float(sell_index_raw)
+            except Exception:
+                sell_index = None
+
         mt_regime = state.get("last_mt", state.get("last_mt_regime", None))
         mt_prob = state.get("last_mt_prob", None)
         mt_thr = state.get("last_mt_prob_thr", None)
@@ -536,15 +517,27 @@ async def list(ctx):
         mt_src = state.get("last_mt_prob_source", None)
         last_alert = state.get("last_alert_time", None)
 
-        # risk emoji based on deterministic score
-        if score < 2.5:
-            risk_emoji = "🟢 Stable"
-        elif score < 4.5:
-            risk_emoji = "🟡 Watch"
-        elif score < 6.5:
-            risk_emoji = "🟠 Weak"
+        # Risk label based on SellIndex (your requirement)
+        # Suggested thresholds aligned to your decision engine UI thresholds.
+        if sell_index is None:
+            # fallback only if missing SellIndex
+            if score < 2.5:
+                risk_emoji = "🟢 Stable"
+            elif score < 4.5:
+                risk_emoji = "🟡 Watch"
+            elif score < 6.5:
+                risk_emoji = "🟠 Weak"
+            else:
+                risk_emoji = "🔴 Critical"
         else:
-            risk_emoji = "🔴 Critical"
+            if sell_index < 0.25:
+                risk_emoji = "🟢 Stable"
+            elif sell_index < 0.45:
+                risk_emoji = "🟡 Watch"
+            elif sell_index < 0.65:
+                risk_emoji = "🟠 Weak"
+            else:
+                risk_emoji = "🔴 Critical"
 
         stock_list.append({
             "ticker": t,
@@ -555,6 +548,7 @@ async def list(ctx):
             "ccy": ccy,
             "fx": float(fx_to_ron),
             "sell_index": sell_index,
+            "sell_index_sort": sell_index if sell_index is not None else -1.0,
             "mt_regime": mt_regime,
             "mt_prob": mt_prob,
             "mt_thr": mt_thr,
@@ -565,7 +559,8 @@ async def list(ctx):
             "last_alert": last_alert,
         })
 
-    stock_list.sort(key=lambda x: x["score"], reverse=True)
+    # Ordering based on SellIndex (your requirement)
+    stock_list.sort(key=lambda x: x["sell_index_sort"], reverse=True)
 
     # Build ticker blocks (atomic; never split)
     ticker_blocks = []
@@ -580,11 +575,11 @@ async def list(ctx):
         ]
 
         if s["sell_index"] is not None:
-            try:
-                lines.append(f"    🧠 Sell Index: {float(s['sell_index']):.2f}/ 0.65")
-                lines.append("")
-            except Exception:
-                pass
+            lines.append(f"    🧠 Sell Index: {float(s['sell_index']):.2f}/ 0.65")
+            lines.append("")
+        else:
+            lines.append("    🧠 Sell Index: n/a / 0.65")
+            lines.append("")
 
         if s["mt_regime"] is not None and s["mt_prob"] is not None:
             thr_txt = f"{float(s['mt_thr']):.2f}" if s["mt_thr"] is not None else "n/a"
