@@ -16,7 +16,7 @@ from keep_alive import keep_alive
 # ---------------------------
 # Version banner (helps confirm the running code)
 # ---------------------------
-BOT_VERSION = "2025-12-23 fx-fix-v1"
+BOT_VERSION = "2025-12-26 chunk-safe-list-v1"
 
 # ✅ Auto-install required packages if missing
 required = ["discord.py", "requests", "yfinance"]
@@ -179,8 +179,9 @@ def get_fx_to_ron(currency: str, *, fallback: float | None = None, ttl_minutes: 
     if c in ("RON", "LEI"):
         return 1.0
 
-    # Cache
     now = datetime.utcnow()
+
+    # Cache (TTL)
     if c in _FX_CACHE:
         rate, ts = _FX_CACHE[c]
         if isinstance(ts, datetime) and (now - ts) <= timedelta(minutes=ttl_minutes) and rate > 0:
@@ -195,15 +196,16 @@ def get_fx_to_ron(currency: str, *, fallback: float | None = None, ttl_minutes: 
             return float(v)
 
     # 2) Cross via USD if direct missing/fails
-    #    Option A: CCYUSD=X gives USD per 1 CCY
     usdron = _read_fx_close("USDRON=X") or None
     if usdron is not None:
         cross = None
+
+        # Option A: CCYUSD=X gives USD per 1 CCY
         v1 = _read_fx_close(f"{c}USD=X")
         if v1 is not None:
             cross = float(v1) * float(usdron)  # (USD/CCY)*(RON/USD) = RON/CCY
         else:
-            # Option B: USDC CY = CCY per USD => invert
+            # Option B: USDCCY=X gives CCY per 1 USD => invert
             v2 = _read_fx_close(f"USD{c}=X")
             if v2 is not None and float(v2) > 0:
                 cross = (1.0 / float(v2)) * float(usdron)
@@ -224,6 +226,56 @@ def get_fx_to_ron(currency: str, *, fallback: float | None = None, ttl_minutes: 
 
     # conservative fallback (prevents blowing up PnL)
     return 1.0
+
+
+# ---------------------------
+# Chunk-safe Discord message builder (NEVER splits a ticker block)
+# ---------------------------
+def _segments_len(segs: list[str]) -> int:
+    if not segs:
+        return 0
+    # +1 newline between segments
+    return sum(len(s) for s in segs) + (len(segs) - 1)
+
+
+async def send_chunked_blocks(ctx, header: str, blocks: list[str], totals: str, limit: int = 1900):
+    """
+    Build Discord messages from:
+      - header (only in the first message)
+      - blocks (ticker samples; never split)
+      - totals (always appended to the final message)
+
+    If totals don't fit at the end, move the last ticker block to a new message and append totals there.
+    Repeat until it fits.
+    """
+    chunks: list[list[str]] = [[header]] if header else [[]]
+
+    # Place ticker blocks without splitting any block
+    for b in blocks:
+        if _segments_len(chunks[-1] + [b]) <= limit:
+            chunks[-1].append(b)
+        else:
+            chunks.append([b])
+
+    # Append totals to the last chunk; if overflow, move last ticker block(s) forward
+    while _segments_len(chunks[-1] + [totals]) > limit:
+        if len(chunks[-1]) > 1:
+            moved = chunks[-1].pop()
+            chunks.append([moved])
+        else:
+            # Can't move anything (only header or single block). Totals will go alone.
+            break
+
+    if _segments_len(chunks[-1] + [totals]) <= limit:
+        chunks[-1].append(totals)
+    else:
+        chunks.append([totals])
+
+    # Send
+    for segs in chunks:
+        msg = "\n".join(segs).strip()
+        if msg:
+            await ctx.send(msg)
 
 
 # ---------------------------
@@ -286,17 +338,14 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         old_fx = float(stocks[t].get("fx_rate_buy", fx_now))
         old_ccy = (stocks[t].get("currency") or ccy).upper().strip()
 
-        # if currency changed unexpectedly, keep the new one but avoid mixing silently
         if old_ccy != ccy:
             await ctx.send(f"⚠️ Currency mismatch for {t} (stored {old_ccy}, live {ccy}). Not updating.")
             return
 
         new_shares = old_shares + shares_bought
         new_invested = old_invested + lei_invested
-
         avg_price = ((old_price * old_shares) + (price * shares_bought)) / new_shares if new_shares > 0 else price
 
-        # smooth fx_rate_buy toward today's fx based on the relative size of the new buy
         weight = (lei_invested / new_invested) if new_invested > 0 else 1.0
         new_fx = old_fx * (1 - weight) + fx_now * weight
 
@@ -332,8 +381,6 @@ async def sell(ctx, ticker: str, price: float, amount: str):
       - `price` is in the ticker's quote currency.
       - `amount` is "all" or a LEI proceeds target.
       - Realized PnL is computed in RON.
-
-    Note: This maintains your original approach (cost basis in invested_lei * share_ratio).
     """
     t = ticker.upper().strip()
     data = load_data()
@@ -385,7 +432,6 @@ async def sell(ctx, ticker: str, price: float, amount: str):
     if remaining_shares <= 1e-9:
         del stocks[t]
     else:
-        # smooth fx reference toward sell fx proportionally to the sold cost basis
         weight = (cost_basis_lei / invested_lei) if invested_lei > 0 else 1.0
         new_fx = fx_ref * (1 - weight) + fx_sell * weight
 
@@ -412,7 +458,10 @@ async def sell(ctx, ticker: str, price: float, amount: str):
 async def list(ctx):
     """
     Show tracked stocks with Weak Streak, deterministic Score, SellIndex, and ML diagnostics.
-    FX behavior: live-first; if live fails, fall back to tracker last_fx_to_ron, then data.json fx_rate_buy.
+
+    Chunking rule (your requirement):
+      - NEVER split a ticker block across messages.
+      - If totals don't fit, move the last ticker block into the next message and append totals there.
     """
     pull_from_github(DATA_FILE)
     pull_from_github(TRACKER_FILE)
@@ -432,10 +481,10 @@ async def list(ctx):
     else:
         tracker = {"tickers": {}}
 
-    msg_lines = [f"**📊 Currently Tracked Stocks:** (v={BOT_VERSION})\n"]
     total_unrealized_pnl = 0.0
     stock_list = []
 
+    # Build stock_list (same as before, but output will be block-safe)
     for ticker, info in stocks.items():
         t = str(ticker).upper().strip()
         avg_price = float(info.get("avg_price", 0))
@@ -454,7 +503,7 @@ async def list(ctx):
         # Currency precedence: data.json -> tracker -> yfinance
         ccy = (info.get("currency") or state.get("last_currency") or get_ticker_currency(t) or "USD").upper().strip()
 
-        # FX: live-first, fallback to tracker, then data.json fx_rate_buy
+        # FX fallback precedence: tracker -> legacy tracker -> data.json
         fx_fallback = None
         if state.get("last_fx_to_ron") is not None:
             fx_fallback = float(state.get("last_fx_to_ron"))
@@ -518,17 +567,22 @@ async def list(ctx):
 
     stock_list.sort(key=lambda x: x["score"], reverse=True)
 
+    # Build ticker blocks (atomic; never split)
+    ticker_blocks = []
     for s in stock_list:
         pnl_sign = "+" if s["pnl_lei"] >= 0 else ""
-        msg_lines.append(
-            f"**{s['ticker']}** — {s['emoji']}\n"
-            f"    Weak {s['weak']:.1f}/3 | Score {s['score']:.1f}\n"
-            f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} RON ({s['ccy']}→RON fx={s['fx']:.4f})\n"
-        )
+
+        lines = [
+            f"**{s['ticker']}** — {s['emoji']}",
+            f"    Weak {s['weak']:.1f}/3 | Score {s['score']:.1f}",
+            f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} RON ({s['ccy']}→RON fx={s['fx']:.4f})",
+            "",
+        ]
 
         if s["sell_index"] is not None:
             try:
-                msg_lines.append(f"    🧠 Sell Index: {float(s['sell_index']):.2f}/ 0.65\n ")
+                lines.append(f"    🧠 Sell Index: {float(s['sell_index']):.2f}/ 0.65")
+                lines.append("")
             except Exception:
                 pass
 
@@ -538,27 +592,29 @@ async def list(ctx):
             sell_txt = "SELL" if bool(s["mt_sell"]) else "NO-SELL"
             model_txt = s["mt_model"] or "?"
             src_txt = s["mt_src"] or "?"
-            msg_lines.append(
+            lines.append(
                 f"    🤖 MT {int(s['mt_regime']):+d} | {sell_txt} | P {float(s['mt_prob']):.2f} (thr {thr_txt}) | "
-                f"Gate {gate_txt} | {model_txt} | src={src_txt}\n"
+                f"Gate {gate_txt} | {model_txt} | src={src_txt}"
             )
+            lines.append("")
 
         if s["last_alert"]:
-            msg_lines.append(f"    🚨 Last alert: {s['last_alert']}\n")
+            lines.append(f"    🚨 Last alert: {s['last_alert']}")
+            lines.append("")
 
+        ticker_blocks.append("\n".join(lines).rstrip())
+
+    # Totals segment (must appear at the end, in the last message)
     realized_pnl = float(data.get("realized_pnl", 0.0))
     pnl_sign_unrealized = "+" if total_unrealized_pnl >= 0 else ""
     pnl_sign_realized = "+" if realized_pnl >= 0 else ""
+    totals = (
+        f"📈 **Unrealized PnL (open positions):** {pnl_sign_unrealized}{total_unrealized_pnl:.2f} RON\n"
+        f"💰 **Cumulative Realized PnL:** {pnl_sign_realized}{realized_pnl:.2f} RON"
+    )
 
-    msg_lines.append(f"📈 **Unrealized PnL (open positions):** {pnl_sign_unrealized}{total_unrealized_pnl:.2f} RON")
-    msg_lines.append(f"💰 **Cumulative Realized PnL:** {pnl_sign_realized}{realized_pnl:.2f} RON")
-
-    msg = "\n".join(msg_lines)
-    if len(msg) > 1900:
-        for chunk in [msg[i:i + 1900] for i in range(0, len(msg), 1900)]:
-            await ctx.send(chunk)
-    else:
-        await ctx.send(msg)
+    header = f"**📊 Currently Tracked Stocks:** (v={BOT_VERSION})\n"
+    await send_chunked_blocks(ctx, header, ticker_blocks, totals, limit=1900)
 
 
 @bot.command()
