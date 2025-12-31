@@ -1,3 +1,4 @@
+
 import os
 import json
 import base64
@@ -5,6 +6,7 @@ import subprocess
 import sys
 from threading import Thread
 from datetime import datetime, timedelta
+from typing import Optional, Tuple
 
 import requests
 import yfinance as yf
@@ -16,7 +18,7 @@ from keep_alive import keep_alive
 # ---------------------------
 # Version banner (helps confirm the running code)
 # ---------------------------
-BOT_VERSION = "2025-12-26 chunk-safe-list-v2-sellindex-sort"
+BOT_VERSION = "2025-12-31 dynamic-thr-v1"
 
 # ✅ Auto-install required packages if missing
 required = ["discord.py", "requests", "yfinance"]
@@ -67,11 +69,7 @@ def push_to_github(file_path, commit_message="Auto-update data.json from Discord
         r = requests.get(api_url, headers={"Authorization": f"token {GH_TOKEN}"})
         sha = (r.json() or {}).get("sha")
 
-        data = {
-            "message": commit_message,
-            "content": base64.b64encode(content.encode()).decode(),
-            "branch": branch
-        }
+        data = {"message": commit_message, "content": base64.b64encode(content.encode()).decode(), "branch": branch}
         if sha:
             data["sha"] = sha
 
@@ -157,7 +155,7 @@ def get_ticker_currency(ticker: str) -> str:
     return ccy
 
 
-def _read_fx_close(symbol: str):
+def _read_fx_close(symbol: str) -> Optional[float]:
     try:
         fx = yf.Ticker(symbol).history(period="1d")
         if fx is not None and (not fx.empty) and ("Close" in fx.columns):
@@ -169,7 +167,7 @@ def _read_fx_close(symbol: str):
     return None
 
 
-def get_fx_to_ron(currency: str, *, fallback: float | None = None, ttl_minutes: int = 20) -> float:
+def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minutes: int = 20) -> float:
     """
     Returns: RON per 1 unit of `currency` (e.g., CAD->RON).
     Behavior: live-first; if live fails, use cached; else use provided fallback; else 1.0.
@@ -200,7 +198,7 @@ def get_fx_to_ron(currency: str, *, fallback: float | None = None, ttl_minutes: 
         cross = None
         v1 = _read_fx_close(f"{c}USD=X")
         if v1 is not None:
-            cross = float(v1) * float(usdron)
+            cross = float(v1) * float(usdron)  # (USD/CCY)*(RON/USD) = RON/CCY
         else:
             v2 = _read_fx_close(f"USD{c}=X")
             if v2 is not None and float(v2) > 0:
@@ -221,6 +219,104 @@ def get_fx_to_ron(currency: str, *, fallback: float | None = None, ttl_minutes: 
         return float(fallback)
 
     return 1.0
+
+
+# ---------------------------
+# Price helper (more "live" than daily close)
+# ---------------------------
+def get_recent_price(ticker: str, fallback: float) -> float:
+    """
+    Attempts, in order:
+      1) fast_info.last_price (if available)
+      2) 1-minute interval last close for today
+      3) daily history last close
+      4) fallback
+    """
+    t = (ticker or "").upper().strip()
+    try:
+        yt = yf.Ticker(t)
+        fi = getattr(yt, "fast_info", None) or {}
+        for k in ("last_price", "lastPrice"):
+            v = fi.get(k)
+            if v is not None:
+                vv = float(v)
+                if vv > 0:
+                    return vv
+    except Exception:
+        pass
+
+    try:
+        intraday = yf.Ticker(t).history(period="1d", interval="1m")
+        if intraday is not None and (not intraday.empty) and ("Close" in intraday.columns):
+            vv = float(intraday["Close"].iloc[-1])
+            if vv > 0:
+                return vv
+    except Exception:
+        pass
+
+    try:
+        px = yf.Ticker(t).history(period="1d")
+        if px is not None and (not px.empty) and ("Close" in px.columns):
+            vv = float(px["Close"].iloc[-1])
+            if vv > 0:
+                return vv
+    except Exception:
+        pass
+
+    return float(fallback)
+
+
+# ---------------------------
+# Dynamic sell thresholds (mirrors decision_engine_dynamic_sell_thresholds_bull_easiest.py)
+# ---------------------------
+BASE_EARLY_BY_MT = {-1: 0.64, 0: 0.63, 1: 0.61}
+BASE_STRONG_BY_MT = {-1: 0.74, 0: 0.73, 1: 0.71}
+
+# Profit-based easing (lower threshold => easier to trigger sell)
+PROFIT_ADJ = [
+    (50.0, -0.10),
+    (30.0, -0.07),
+    (10.0, -0.04),
+    (0.0, -0.02),
+]
+
+
+def _clamp(v: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, v))
+
+
+def get_sell_thresholds(pnl_pct: Optional[float], mt: int) -> Tuple[float, float]:
+    mt = int(mt) if mt in (-1, 0, 1) else 0
+    early = float(BASE_EARLY_BY_MT.get(mt, 0.63))
+    strong = float(BASE_STRONG_BY_MT.get(mt, 0.73))
+
+    p = float(pnl_pct) if pnl_pct is not None else None
+    if p is not None:
+        for cutoff, adj in PROFIT_ADJ:
+            if p >= float(cutoff):
+                early += float(adj)
+                strong += float(adj)
+                break
+
+    early = _clamp(early, 0.45, 0.70)
+    strong = _clamp(strong, max(early + 0.05, 0.55), 0.85)
+    return early, strong
+
+
+def risk_label_from_sell_index(sell_index: Optional[float], early_thr: float) -> str:
+    if sell_index is None:
+        return "🟢 Stable"
+
+    stable_cut = max(0.20, 0.40 * early_thr)
+    watch_cut = max(stable_cut, 0.70 * early_thr)
+
+    if sell_index < stable_cut:
+        return "🟢 Stable"
+    if sell_index < watch_cut:
+        return "🟡 Watch"
+    if sell_index < early_thr:
+        return "🟠 Weak"
+    return "🔴 Critical"
 
 
 # ---------------------------
@@ -428,15 +524,6 @@ async def sell(ctx, ticker: str, price: float, amount: str):
 
 @bot.command()
 async def list(ctx):
-    """
-    Show tracked stocks with Weak Streak, deterministic Score, SellIndex, and ML diagnostics.
-
-    IMPORTANT changes per your requirement:
-      - "Stable/Watch/Weak/Critical" is based on SellIndex (NOT Score).
-      - Ordering is by SellIndex descending (NOT Score).
-      - Layout stays the same.
-      - Chunking: NEVER split a ticker block; totals always at the very end.
-    """
     pull_from_github(DATA_FILE)
     pull_from_github(TRACKER_FILE)
 
@@ -464,19 +551,12 @@ async def list(ctx):
         shares = float(info.get("shares", 0))
         invested_lei = float(info.get("invested_lei", 0))
 
-        # live close
-        try:
-            px = yf.Ticker(t).history(period="1d")
-            current_price = float(px["Close"].iloc[-1]) if (px is not None and (not px.empty)) else avg_price
-        except Exception:
-            current_price = avg_price
+        current_price = get_recent_price(t, fallback=avg_price)
 
         state = (tracker.get("tickers", {}) or {}).get(t, {}) or {}
 
-        # Currency precedence: data.json -> tracker -> yfinance
         ccy = (info.get("currency") or state.get("last_currency") or get_ticker_currency(t) or "USD").upper().strip()
 
-        # FX fallback precedence: tracker -> legacy tracker -> data.json
         fx_fallback = None
         if state.get("last_fx_to_ron") is not None:
             fx_fallback = float(state.get("last_fx_to_ron"))
@@ -490,10 +570,10 @@ async def list(ctx):
         current_value_lei = current_price * shares * float(fx_to_ron)
         pnl_lei = current_value_lei - invested_lei
         total_unrealized_pnl += pnl_lei
+        pnl_pct = (pnl_lei / invested_lei) * 100.0 if invested_lei > 0 else None
 
         weak_streak = float(state.get("weak_streak", 0.0))
 
-        # score is still displayed, but NOT used for label or ordering anymore
         score = state.get("last_score", None)
         if score is None:
             rolling = state.get("rolling_scores", []) or []
@@ -508,7 +588,17 @@ async def list(ctx):
             except Exception:
                 sell_index = None
 
-        mt_regime = state.get("last_mt", state.get("last_mt_regime", None))
+        mt_regime = state.get("last_mt", state.get("last_mt_regime", 0))
+        try:
+            mt_regime_int = int(mt_regime)
+        except Exception:
+            mt_regime_int = 0
+        if mt_regime_int not in (-1, 0, 1):
+            mt_regime_int = 0
+
+        early_thr, strong_thr = get_sell_thresholds(pnl_pct, mt_regime_int)
+        risk_emoji = risk_label_from_sell_index(sell_index, early_thr)
+
         mt_prob = state.get("last_mt_prob", None)
         mt_thr = state.get("last_mt_prob_thr", None)
         mt_gate = state.get("last_mt_gate", None)
@@ -517,39 +607,20 @@ async def list(ctx):
         mt_src = state.get("last_mt_prob_source", None)
         last_alert = state.get("last_alert_time", None)
 
-        # Risk label based on SellIndex (your requirement)
-        # Suggested thresholds aligned to your decision engine UI thresholds.
-        if sell_index is None:
-            # fallback only if missing SellIndex
-            if score < 2.5:
-                risk_emoji = "🟢 Stable"
-            elif score < 4.5:
-                risk_emoji = "🟡 Watch"
-            elif score < 6.5:
-                risk_emoji = "🟠 Weak"
-            else:
-                risk_emoji = "🔴 Critical"
-        else:
-            if sell_index < 0.25:
-                risk_emoji = "🟢 Stable"
-            elif sell_index < 0.45:
-                risk_emoji = "🟡 Watch"
-            elif sell_index < 0.65:
-                risk_emoji = "🟠 Weak"
-            else:
-                risk_emoji = "🔴 Critical"
-
         stock_list.append({
             "ticker": t,
             "weak": weak_streak,
             "score": score,
             "emoji": risk_emoji,
             "pnl_lei": pnl_lei,
+            "pnl_pct": pnl_pct,
             "ccy": ccy,
             "fx": float(fx_to_ron),
             "sell_index": sell_index,
             "sell_index_sort": sell_index if sell_index is not None else -1.0,
-            "mt_regime": mt_regime,
+            "early_thr": early_thr,
+            "strong_thr": strong_thr,
+            "mt_regime": mt_regime_int,
             "mt_prob": mt_prob,
             "mt_thr": mt_thr,
             "mt_gate": mt_gate,
@@ -559,29 +630,30 @@ async def list(ctx):
             "last_alert": last_alert,
         })
 
-    # Ordering based on SellIndex (your requirement)
     stock_list.sort(key=lambda x: x["sell_index_sort"], reverse=True)
 
-    # Build ticker blocks (atomic; never split)
     ticker_blocks = []
     for s in stock_list:
         pnl_sign = "+" if s["pnl_lei"] >= 0 else ""
+        pct_txt = f" | PnL {float(s['pnl_pct']):+.2f}%" if s["pnl_pct"] is not None else ""
 
         lines = [
             f"**{s['ticker']}** — {s['emoji']}",
-            f"    Weak {s['weak']:.1f}/3 | Score {s['score']:.1f}",
+            f"    Weak {s['weak']:.1f}/3 | Score {s['score']:.1f}{pct_txt}",
             f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} RON ({s['ccy']}→RON fx={s['fx']:.4f})",
             "",
         ]
 
         if s["sell_index"] is not None:
-            lines.append(f"    🧠 Sell Index: {float(s['sell_index']):.2f}/ 0.65")
+            lines.append(
+                f"    🧠 Sell Index: {float(s['sell_index']):.2f}/ {s['early_thr']:.2f} (strong {s['strong_thr']:.2f})"
+            )
             lines.append("")
         else:
-            lines.append("    🧠 Sell Index: n/a / 0.65")
+            lines.append(f"    🧠 Sell Index: n/a / {s['early_thr']:.2f} (strong {s['strong_thr']:.2f})")
             lines.append("")
 
-        if s["mt_regime"] is not None and s["mt_prob"] is not None:
+        if s["mt_prob"] is not None:
             thr_txt = f"{float(s['mt_thr']):.2f}" if s["mt_thr"] is not None else "n/a"
             gate_txt = f"{float(s['mt_gate']):.2f}" if s["mt_gate"] is not None else "n/a"
             sell_txt = "SELL" if bool(s["mt_sell"]) else "NO-SELL"
@@ -599,7 +671,6 @@ async def list(ctx):
 
         ticker_blocks.append("\n".join(lines).rstrip())
 
-    # Totals segment (must appear at the end, in the last message)
     realized_pnl = float(data.get("realized_pnl", 0.0))
     pnl_sign_unrealized = "+" if total_unrealized_pnl >= 0 else ""
     pnl_sign_realized = "+" if realized_pnl >= 0 else ""
@@ -618,9 +689,6 @@ async def pnl(ctx):
     await ctx.send(f"💰 **Cumulative Realized PnL:** {float(data.get('realized_pnl', 0.0)):.2f} RON")
 
 
-# ---------------------------
-# Run Bot
-# ---------------------------
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_BOT_TOKEN")
     if not TOKEN:

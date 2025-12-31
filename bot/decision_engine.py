@@ -18,9 +18,65 @@ LIVE_RESULTS_CSV = "bot/live_results.csv"
 LLM_INPUT_CSV = "bot/LLM_data/input_llm/llm_input_latest.csv"
 LLM_PRED_CSV = "bot/LLM_data/input_llm/llm_predictions.csv"
 
-# UI thresholds (SellIndex is 0..1)
-SELL_THR_EARLY = 0.65
-SELL_THR_STRONG = 0.75
+# ---------------------------
+# Dynamic sell thresholds (SellIndex is 0..1)
+# ---------------------------
+# Baselines by MarketTrend (MT):
+#   -1 bear   : hardest to trigger (avoid whipsaw; require more consensus)
+#    0 neutral: baseline
+#   +1 bull   : easiest to trigger (risk-on; take profits earlier)
+#
+# Per your request:
+#   - overall, both EARLY and STRONG thresholds are slightly lower than before;
+#   - MT=-1 EARLY is now *just below* 0.65.
+_BASE_THR_BY_MT = {
+    -1: (0.64, 0.74),  # bear
+     0: (0.63, 0.73),  # neutral
+     1: (0.61, 0.71),  # bull
+}
+# Profit-tier adjustments (applied to both early/strong).
+# Negative => lower threshold => easier to sell.
+_PROFIT_ADJ = [
+    (50.0, -0.10),  # >= 50% upside: weakest required compounded sell signal
+    (30.0, -0.07),
+    (10.0, -0.04),
+    ( 0.0, -0.02),
+]
+
+
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
+
+
+def get_sell_thresholds(pnl_pct: Optional[float], mt: int) -> Tuple[float, float]:
+    """
+    Returns (early_thr, strong_thr) for SellIndex, based on:
+      - MarketTrend regime (-1/0/+1)
+      - Current upside (pnl_pct)
+
+    Design intent:
+      - pnl >= 50% => easiest selling thresholds (weakest required compounded sell signal)
+      - bull markets require slightly higher thresholds unless upside is large
+    """
+    base_early, base_strong = _BASE_THR_BY_MT.get(mt, _BASE_THR_BY_MT[0])
+
+    adj = 0.0
+    if pnl_pct is not None:
+        p = float(pnl_pct)
+        for cut, a in _PROFIT_ADJ:
+            if p >= cut:
+                adj = a
+                break
+
+    early = _clamp(base_early + adj, 0.45, 0.85)
+    strong = _clamp(base_strong + adj, 0.50, 0.95)
+
+    # ensure ordering and spacing
+    if strong < early + 0.05:
+        strong = _clamp(early + 0.05, 0.50, 0.95)
+
+    return float(early), float(strong)
+
 
 # Deterministic normalization scale by regime.
 # Bigger scale => deterministic contributes LESS to SellIndex.
@@ -142,7 +198,7 @@ def save_tracker(data):
 # ---------------------------
 # Git commit (truthful)
 # ---------------------------
-def _run(cmd: list[str]) -> int:
+def _run(cmd: list) -> int:
     try:
         r = subprocess.run(cmd, check=False, capture_output=True, text=True)
         if r.returncode != 0:
@@ -204,15 +260,6 @@ def check_sell_conditions(
     info=None,
     debug=True,
 ):
-    """
-    Returns:
-      sell_override (bool): hard override SELL (e.g., hard stop loss)
-      message (str): label for override reason / general status
-      current_price (float): passthrough
-      avg_score (float): rolling average points score (0..10-ish, can exceed slightly)
-      score (float): points this run
-      reasons (list[str]): active deterministic flags that added points
-    """
     if info is None:
         info = {}
 
@@ -222,7 +269,7 @@ def check_sell_conditions(
     info.setdefault("last_decay_date", None)
     info.setdefault("was_above_47", False)
 
-    reasons: list[str] = []
+    reasons = []
 
     # Hard stop-loss
     if pnl_pct is not None and float(pnl_pct) <= -25:
@@ -359,9 +406,6 @@ def check_sell_conditions(
     return False, "Holding steady", current_price, float(avg_score), float(score), reasons
 
 
-# ---------------------------
-# Small helpers
-# ---------------------------
 def _context_tag(pnl):
     if pnl is None:
         return "⚪ Neutral"
@@ -419,7 +463,6 @@ def _ml_line(
 
     ps = f"{float(pred_sellscore):.3f}" if pred_sellscore is not None else "n/a"
     st = f"{float(sell_threshold):.3f}" if sell_threshold is not None else "n/a"
-    mt_txt = f"{int(mt):+d}"
     mt_type = (model_type or "model").strip()
 
     return (
@@ -428,9 +471,6 @@ def _ml_line(
     )
 
 
-# ---------------------------
-# Main runner
-# ---------------------------
 def run_decision_engine(test_mode=False, end_of_day=False):
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
     tracker = load_tracker()
@@ -452,7 +492,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
     try:
         sell_brain = SellBrain()
         print("🧠 MT SELL brain loaded successfully (bear/neutral/bull).")
-        # Keep predictions file in sync when possible (non-fatal)
         try:
             outp = run_batch_predictions(LLM_INPUT_CSV, LLM_PRED_CSV, model_dir=None)
             print(f"🧾 MT predictions refreshed → {outp}")
@@ -480,13 +519,11 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         current_price = float(indicators["current_price"])
         info_state = tracker["tickers"].get(ticker, {}) or {}
 
-        # Multi-currency PnL conversion (ticker currency -> RON)
         ccy = get_ticker_currency(ticker)
         fx_to_ron = get_fx_to_ron(ccy)
         pnl_lei = current_price * shares * fx_to_ron - invested_lei
         pnl_pct = (pnl_lei / invested_lei) * 100.0 if invested_lei else 0.0
 
-        # Deterministic (includes hard stop-loss override)
         rule_sell, rule_msg, _, avg_score, rule_score, rule_reasons = check_sell_conditions(
             ticker,
             avg_price,
@@ -508,7 +545,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
         weak_streak = float(info_state.get("weak_streak", 0.0))
 
-        # ML: use the exact feature row used for training schema (llm_input_latest.csv)
         ml_row = llm_input_map.get(ticker, {}) or {}
         mt = int(_safe_float(ml_row.get("MarketTrend"), 0) or 0)
         if mt not in (-1, 0, 1):
@@ -533,16 +569,12 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         mt_sell_signal = False if not mt_pred else bool(mt_pred.get("mt_sell_signal") or False)
         model_type = None if not mt_pred else mt_pred.get("model_type")
 
-        # -------------------
-        # Fusion (NO free bias)
-        # -------------------
         rule_scale = float(RULE_SCALE_BY_MT.get(mt, 10.0))
         rule_norm = min(1.0, float(avg_score) / rule_scale)
 
         w_mt = max(0.0, min(0.85, float(mt_weight or 0.0)))
         w_rule = max(0.0, 1.0 - w_mt)
 
-        # Renormalize (safety)
         w_sum = w_mt + w_rule
         if w_sum <= 0:
             w_mt, w_rule = 0.0, 1.0
@@ -554,7 +586,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         ml_contrib = w_mt * float(mt_gate or 0.0)
         sell_index = max(0.0, min(rule_contrib + ml_contrib, 1.0))
 
-        # Optional softening: borderline deterministic (6.0..7.0 avg_score) softened if ML is below threshold
         mt_softened = False
         if (
             6.0 <= float(avg_score) < 7.0
@@ -565,7 +596,9 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             sell_index = max(0.0, sell_index - 0.15)
             mt_softened = True
 
-        # Decision zones
+        sell_thr_early, sell_thr_strong = get_sell_thresholds(pnl_pct, mt)
+        require_weak_for_strong = not (pnl_pct is not None and float(pnl_pct) >= 50.0)
+
         decision = False
         label = "HOLD"
         color_tag = "🟢"
@@ -574,22 +607,21 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             label = "HARD STOP-LOSS SELL"
             color_tag = "🔴"
         else:
-            if sell_index >= SELL_THR_STRONG and weak_streak >= 1.0:
+            if sell_index >= sell_thr_strong and (weak_streak >= 1.0 or (not require_weak_for_strong)):
                 decision = True
                 label = "STRONG SELL"
                 color_tag = "🔴"
-            elif sell_index >= SELL_THR_EARLY:
+            elif sell_index >= sell_thr_early:
                 decision = True
                 label = "EARLY SELL"
                 color_tag = "🟠"
 
-        # Friendly console logs (your requested format)
-        delta = max(0.0, SELL_THR_EARLY - sell_index)
+        delta = max(0.0, sell_thr_early - sell_index)
         pnl_context = _context_tag(pnl_pct)
 
         print(
             f"{color_tag} {ticker} | {label} | "
-            f"SellIndex {sell_index:.2f} / {SELL_THR_EARLY:.2f} SELL (Δ{delta:.2f}) | "
+            f"SellIndex {sell_index:.2f} / {sell_thr_early:.2f} SELL (Δ{delta:.2f}) | "
             f"Weak {weak_streak:.1f}/3 | PnL {pnl_pct:+.2f}% | CCY {ccy} | MT {mt:+d}"
         )
 
@@ -606,7 +638,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             mt_prob=mt_prob,
             mt_prob_thr=mt_prob_thr,
             mt_gate=mt_gate,
-            mt_weight=w_mt,            # show normalized weight actually used
+            mt_weight=w_mt,
             ml_contrib=ml_contrib,
             pred_sellscore=pred_sellscore,
             sell_threshold=sell_threshold,
@@ -618,7 +650,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         if mt_softened:
             print("    Note: ML softened borderline deterministic sell.")
 
-        # Persist tracker fields aligned to Discord !list
         now_utc = datetime.utcnow()
         info_state["last_checked_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
         info_state["last_signal_label"] = label
@@ -627,6 +658,9 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         info_state["last_mt"] = int(mt)
         info_state["last_currency"] = ccy
         info_state["last_fx_to_ron"] = float(fx_to_ron)
+
+        info_state["last_sell_thr_early"] = float(sell_thr_early)
+        info_state["last_sell_thr_strong"] = float(sell_thr_strong)
 
         info_state["last_rule_scale"] = float(rule_scale)
         info_state["last_w_rule"] = float(w_rule)
@@ -654,7 +688,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 f"{pnl_context}\n"
                 f"💰 **PnL:** {pnl_pct:+.2f}% ({ccy}→RON fx={fx_to_ron:.4f})\n"
                 f"📊 **AvgScore:** {avg_score:.2f} | Weak: {weak_streak:.1f}/3\n"
-                f"🧠 **SellIndex:** {sell_index:.2f} (thr {SELL_THR_EARLY:.2f})\n"
+                f"🧠 **SellIndex:** {sell_index:.2f} (early {sell_thr_early:.2f} / strong {sell_thr_strong:.2f})\n"
                 f"🧩 Mix: Rule +{rule_contrib:.2f} | ML +{ml_contrib:.2f}\n"
                 f"{ml_line}\n"
                 f"🧾 Rule note: {rule_msg}\n"
@@ -669,6 +703,8 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             "decision": bool(decision),
             "label": label,
             "SellIndex": float(sell_index),
+            "SellThrEarly": float(sell_thr_early),
+            "SellThrStrong": float(sell_thr_strong),
             "AvgScore": float(avg_score),
             "RuleScale": float(rule_scale),
             "WeakStreak": float(weak_streak),
@@ -692,7 +728,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
     tracker["had_alerts"] = bool(tracker.get("had_alerts") or (len(sell_alerts) > 0))
     save_tracker(tracker)
 
-    # Live results CSV
     try:
         d = os.path.dirname(LIVE_RESULTS_CSV)
         if d:
@@ -705,7 +740,6 @@ def run_decision_engine(test_mode=False, end_of_day=False):
     if not test_mode:
         git_commit_tracker()
 
-    # Discord (safe)
     now_utc = datetime.utcnow()
     if sell_alerts:
         msg = "🚨 **SELL SIGNALS TRIGGERED** 🚨\n\n" + "\n\n".join(sell_alerts)
