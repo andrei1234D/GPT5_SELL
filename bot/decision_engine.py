@@ -3,7 +3,7 @@ import json
 import os
 import subprocess
 from datetime import datetime
-
+from typing import Optional, Tuple
 import numpy as np
 import pandas as pd
 import yfinance as yf
