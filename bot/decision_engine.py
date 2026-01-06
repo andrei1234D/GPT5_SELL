@@ -32,7 +32,7 @@ _PROFIT_ADJ = [
 ]
 
 # Strong sell bypass multiplier (strong = 1.3 * early)
-STRONG_SELL_MULT = 1.275
+STRONG_SELL_MULT = 1.25
 
 # Deterministic normalization scale by regime.
 # Bigger scale => deterministic contributes LESS to SellIndex.
@@ -696,6 +696,11 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
                 ml_contrib = start + (cap - start) * gate
                 ml_contrib = float(_clamp(ml_contrib, 0.0, cap))
 
+        print(
+    f"[RAMP_DEBUG] {ticker} mt={mt} "
+    f"p={float(mt_prob):.6f} thr_used={ml_prob_thr_used:.6f} "
+    f"gate_norm={ml_gate_used:.6f} cap={ml_cap_used:.6f} ml_contrib={ml_contrib:.6f}"
+)
 
         sell_index_raw = float(_clamp(det_contrib + ml_contrib, 0.0, 1.0))
 
