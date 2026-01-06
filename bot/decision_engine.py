@@ -671,12 +671,31 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         mt_sell_signal = False if not mt_pred else bool(mt_pred.get("mt_sell_signal") or False)
         model_type = None if not mt_pred else mt_pred.get("model_type")
 
-        # V9: use agent-tuned ML probability threshold and cap (NOT model-provided mt_gate).
+        # V9: use agent-tuned ML probability threshold and cap, but RAMP contribution from threshold -> 1.0
         ml_prob_thr_used = float(rp["ml_prob_thr"])
-        ml_gate_used = 0.0
-        if mt_prob is not None and np.isfinite(float(mt_prob)) and float(mt_prob) >= ml_prob_thr_used:
-            ml_gate_used = float(mt_prob)
-        ml_contrib = min(float(rp["ml_cap"]), float(ml_gate_used))
+        ml_cap_used = float(rp["ml_cap"])
+
+        ML_RAMP_START = 0.01  # contribution when P == thr (absolute, not a fraction)
+
+        ml_contrib = 0.0
+        ml_gate_used = 0.0  # keep for logging: normalized gate in [0,1] once above threshold
+
+        if mt_prob is not None and np.isfinite(float(mt_prob)):
+            p = float(_clamp(float(mt_prob), 0.0, 1.0))
+            thr = float(_clamp(ml_prob_thr_used, 0.0, 0.999999))  # avoid division by zero at 1.0
+            cap = max(0.0, ml_cap_used)
+
+            if p >= thr and cap > 0.0:
+                # Normalize prob above threshold into [0, 1] where 0 at thr, 1 at 1.0
+                gate = (p - thr) / (1.0 - thr) if (1.0 - thr) > 0 else 1.0
+                gate = float(_clamp(gate, 0.0, 1.0))
+                ml_gate_used = gate
+
+                start = float(_clamp(ML_RAMP_START, 0.0, cap))
+                # Ramp from start -> cap as gate goes 0 -> 1
+                ml_contrib = start + (cap - start) * gate
+                ml_contrib = float(_clamp(ml_contrib, 0.0, cap))
+
 
         sell_index_raw = float(_clamp(det_contrib + ml_contrib, 0.0, 1.0))
 
