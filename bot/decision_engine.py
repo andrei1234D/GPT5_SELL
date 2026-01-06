@@ -32,7 +32,7 @@ _PROFIT_ADJ = [
 ]
 
 # Strong sell bypass multiplier (strong = 1.3 * early)
-STRONG_SELL_MULT = 1.3
+STRONG_SELL_MULT = 1.275
 
 # Deterministic normalization scale by regime.
 # Bigger scale => deterministic contributes LESS to SellIndex.
