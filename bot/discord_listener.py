@@ -1,13 +1,11 @@
-
 import os
 import json
 import base64
-import subprocess
 import sys
 import math
 from threading import Thread
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 
 import requests
 import yfinance as yf
@@ -21,18 +19,8 @@ from keep_alive import keep_alive
 # ---------------------------
 BOT_VERSION = "2026-01-06 decision-engine-v9_1-ui"
 
-# ✅ Auto-install required packages if missing
-required = ["discord.py", "requests", "yfinance"]
-for pkg in required:
-    try:
-        __import__(pkg.replace("-", "_").split(".")[0])
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
-
 DATA_FILE = "bot/data.json"
 TRACKER_FILE = "bot/sell_alerts_tracker.json"
-
-keep_alive()
 
 # ---------------------------
 # Data Management
@@ -45,7 +33,9 @@ def load_data():
 
 
 def save_data(data):
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+    d = os.path.dirname(DATA_FILE)
+    if d:
+        os.makedirs(d, exist_ok=True)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
@@ -68,17 +58,25 @@ def push_to_github(file_path, commit_message="Auto-update data.json from Discord
             content = f.read()
 
         r = requests.get(api_url, headers={"Authorization": f"token {GH_TOKEN}"})
-        sha = (r.json() or {}).get("sha")
+        sha = None
+        try:
+            sha = (r.json() or {}).get("sha")
+        except Exception:
+            sha = None
 
-        data = {"message": commit_message, "content": base64.b64encode(content.encode()).decode(), "branch": branch}
+        payload = {
+            "message": commit_message,
+            "content": base64.b64encode(content.encode()).decode(),
+            "branch": branch,
+        }
         if sha:
-            data["sha"] = sha
+            payload["sha"] = sha
 
-        res = requests.put(api_url, json=data, headers={"Authorization": f"token {GH_TOKEN}"})
-        if res.status_code in [200, 201]:
+        res = requests.put(api_url, json=payload, headers={"Authorization": f"token {GH_TOKEN}"})
+        if res.status_code in (200, 201):
             print("✅ Pushed", file_path, "to GitHub")
         else:
-            print("❌ GitHub push failed:", res.text)
+            print("❌ GitHub push failed:", res.status_code, res.text[:500])
     except Exception as e:
         print(f"⚠️ Error pushing to GitHub: {e}")
 
@@ -97,20 +95,57 @@ def pull_from_github(file_path):
 
         res = requests.get(api_url, headers={"Authorization": f"token {GH_TOKEN}"})
         if res.status_code == 200:
-            response_json = res.json()
+            response_json = res.json() or {}
             if "content" not in response_json:
-                print("❌ GitHub response missing 'content':", response_json)
+                print("❌ GitHub response missing 'content':", str(response_json)[:500])
                 return
+
             content = base64.b64decode(response_json["content"]).decode()
 
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            d = os.path.dirname(file_path)
+            if d:
+                os.makedirs(d, exist_ok=True)
+
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
             print(f"✅ Pulled latest {file_path} from GitHub")
         else:
-            print("❌ GitHub pull failed:", res.text)
+            # 404 is common on first run when file hasn't been created yet.
+            print("⚠️ GitHub pull failed:", res.status_code, res.text[:200])
     except Exception as e:
         print(f"⚠️ Error pulling from GitHub: {e}")
+
+
+# ---------------------------
+# Small helpers
+# ---------------------------
+def _safe_float(x, default=None) -> Optional[float]:
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str) and x.strip() == "":
+            return default
+        v = float(x)
+        if math.isfinite(v):
+            return v
+        return default
+    except Exception:
+        return default
+
+
+def _safe_int(x, default=None) -> Optional[int]:
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str) and x.strip() == "":
+            return default
+        return int(float(x))
+    except Exception:
+        return default
+
+
+def _clamp(v: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, v))
 
 
 # ---------------------------
@@ -234,6 +269,7 @@ def get_recent_price(ticker: str, fallback: float) -> float:
       4) fallback
     """
     t = (ticker or "").upper().strip()
+
     try:
         yt = yf.Ticker(t)
         fi = getattr(yt, "fast_info", None) or {}
@@ -268,15 +304,11 @@ def get_recent_price(ticker: str, fallback: float) -> float:
 
 
 # ---------------------------
-# Decision-engine-aligned thresholds (fallback only; prefer tracker fields when present)
+# Threshold fallbacks (UI only; engine values from tracker take precedence)
 # ---------------------------
-# These mirror decision_engine_v9_1 defaults. If you override regime params in the engine,
-# the tracker values (last_sell_thr_early/strong) will still be used first.
 _BASE_THR_BY_MT = {-1: 0.64, 0: 0.63, 1: 0.61}
 _STRONG_SELL_MULT = 1.25
 
-# Profit-based easing (lower threshold => easier to trigger sell)
-# V9_1 change: slightly reduced easing; removed the +0% tier.
 _PROFIT_ADJ = [
     (50.0, -0.08),
     (30.0, -0.06),
@@ -284,26 +316,11 @@ _PROFIT_ADJ = [
 ]
 
 
-def _clamp(v: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, v))
-
-
 def get_sell_thresholds(pnl_pct: Optional[float], mt: int) -> Tuple[float, float]:
-    """
-    Fallback thresholds for UI, aligned to decision_engine_v9_1:
-      - Profit adjustment applies to EARLY threshold only.
-      - STRONG threshold = max(early*1.25, early+0.05), clamped.
-    """
     mt = int(mt) if mt in (-1, 0, 1) else 0
     early = float(_BASE_THR_BY_MT.get(mt, 0.63))
 
-    p = None
-    try:
-        if pnl_pct is not None and math.isfinite(float(pnl_pct)):
-            p = float(pnl_pct)
-    except Exception:
-        p = None
-
+    p = _safe_float(pnl_pct, None)
     if p is not None:
         for cutoff, adj in _PROFIT_ADJ:
             if p >= float(cutoff):
@@ -312,24 +329,25 @@ def get_sell_thresholds(pnl_pct: Optional[float], mt: int) -> Tuple[float, float
 
     early = _clamp(early, 0.45, 0.90)
 
+    # Align to engine: strong = max(early*1.25, early+0.05) then clamp to 0.95
     strong = max(float(early) * float(_STRONG_SELL_MULT), float(early) + 0.05)
-    strong = _clamp(strong, 0.50, 0.90)
+    strong = _clamp(strong, 0.50, 0.95)
 
     return float(early), float(strong)
 
 
-def risk_label_from_sell_index(sell_index: Optional[float], early_thr: float) -> str:
-    if sell_index is None:
+def risk_label_from_sell_index(avg_sell_index: Optional[float], early_thr: float) -> str:
+    if avg_sell_index is None:
         return "🟢 Stable"
 
     stable_cut = max(0.20, 0.40 * early_thr)
     watch_cut = max(stable_cut, 0.70 * early_thr)
 
-    if sell_index < stable_cut:
+    if avg_sell_index < stable_cut:
         return "🟢 Stable"
-    if sell_index < watch_cut:
+    if avg_sell_index < watch_cut:
         return "🟡 Watch"
-    if sell_index < early_thr:
+    if avg_sell_index < early_thr:
         return "🟠 Weak"
     return "🔴 Critical"
 
@@ -344,15 +362,6 @@ def _segments_len(segs: list[str]) -> int:
 
 
 async def send_chunked_blocks(ctx, header: str, blocks: list[str], totals: str, limit: int = 1900):
-    """
-    Build Discord messages from:
-      - header (only in the first message)
-      - blocks (ticker samples; never split)
-      - totals (always appended to the final message)
-
-    If totals don't fit at the end, move the last ticker block to a new message and append totals there.
-    Repeat until it fits.
-    """
     chunks: list[list[str]] = [[header]] if header else [[]]
 
     for b in blocks:
@@ -489,9 +498,8 @@ async def sell(ctx, ticker: str, price: float, amount: str):
         proceeds_ccy = shares_sold * price
         proceeds_lei = proceeds_ccy * fx_sell
     else:
-        try:
-            proceeds_lei = float(amount)
-        except ValueError:
+        proceeds_lei = _safe_float(amount, None)
+        if proceeds_lei is None:
             await ctx.send("⚠️ Invalid amount. Use a number (RON proceeds) or 'all'.")
             return
         if proceeds_lei <= 0:
@@ -548,14 +556,13 @@ async def list(ctx):
         await ctx.send("📭 No stocks currently tracked.")
         return
 
+    tracker = {"tickers": {}}
     if os.path.exists(TRACKER_FILE):
-        with open(TRACKER_FILE, "r", encoding="utf-8") as f:
-            try:
-                tracker = json.load(f)
-            except json.JSONDecodeError:
-                tracker = {"tickers": {}}
-    else:
-        tracker = {"tickers": {}}
+        try:
+            with open(TRACKER_FILE, "r", encoding="utf-8") as f:
+                tracker = json.load(f) or tracker
+        except Exception:
+            tracker = {"tickers": {}}
 
     total_unrealized_pnl = 0.0
     stock_list = []
@@ -567,18 +574,15 @@ async def list(ctx):
         invested_lei = float(info.get("invested_lei", 0))
 
         current_price = get_recent_price(t, fallback=avg_price)
-
         state = (tracker.get("tickers", {}) or {}).get(t, {}) or {}
 
         ccy = (info.get("currency") or state.get("last_currency") or get_ticker_currency(t) or "USD").upper().strip()
 
-        fx_fallback = None
-        if state.get("last_fx_to_ron") is not None:
-            fx_fallback = float(state.get("last_fx_to_ron"))
-        elif state.get("last_fx_to_lei") is not None:
-            fx_fallback = float(state.get("last_fx_to_lei"))
-        elif info.get("fx_rate_buy") is not None:
-            fx_fallback = float(info.get("fx_rate_buy"))
+        fx_fallback = _safe_float(state.get("last_fx_to_ron"), None)
+        if fx_fallback is None:
+            fx_fallback = _safe_float(state.get("last_fx_to_lei"), None)
+        if fx_fallback is None:
+            fx_fallback = _safe_float(info.get("fx_rate_buy"), None)
 
         fx_to_ron = get_fx_to_ron(ccy, fallback=fx_fallback)
 
@@ -587,92 +591,74 @@ async def list(ctx):
         total_unrealized_pnl += pnl_lei
         pnl_pct = (pnl_lei / invested_lei) * 100.0 if invested_lei > 0 else None
 
-        # NEW (decision-engine aligned): show weak-days and avg sell-index when available.
-        weak_days = None
-        for k in ("weak_days", "last_weak_days", "weak_streak"):
-            if state.get(k) is not None:
-                try:
-                    weak_days = float(state.get(k))
-                    break
-                except Exception:
-                    pass
-        if weak_days is None:
-            weak_days = 0.0
-
-        weak_req = None
-        for k in ("weak_req", "last_weak_req", "WeakReq"):
-            if state.get(k) is not None:
-                try:
-                    weak_req = int(state.get(k))
-                    break
-                except Exception:
-                    pass
+        # Engine weak-days
+        weak_days = _safe_int(state.get("weak_days"), 0) or 0
+        weak_req = _safe_int(state.get("weak_req"), None)
         if weak_req is None:
-            weak_req = 3  # UI default; engine should ideally provide this
+            weak_req = _safe_int(state.get("last_weak_req"), None)
+        if weak_req is None:
+            weak_req = 3
 
-        sell_index_raw = state.get("last_sell_index", None)
-        sell_index = None
-        if sell_index_raw is not None:
-            try:
-                sell_index = float(sell_index_raw)
-            except Exception:
-                sell_index = None
+        # Regime
+        mt_regime_int = _safe_int(state.get("last_mt"), 0) or 0
+        if mt_regime_int not in (-1, 0, 1):
+            mt_regime_int = 0
 
-        # Avg sell-index (rolling awareness). If missing, fall back to last sell-index.
-        avg_sell_index = None
-        for k in ("avg_sell_index", "last_avg_sell_index", "avgSellIndex"):
-            if state.get(k) is not None:
-                try:
-                    avg_sell_index = float(state.get(k))
-                    break
-                except Exception:
-                    pass
+        # Prefer engine thresholds if present
+        early_thr = _safe_float(state.get("last_sell_thr_early"), None)
+        strong_thr = _safe_float(state.get("last_sell_thr_strong"), None)
+        if early_thr is None or strong_thr is None:
+            early_f, strong_f = get_sell_thresholds(pnl_pct, mt_regime_int)
+            early_thr = early_thr if early_thr is not None else early_f
+            strong_thr = strong_thr if strong_thr is not None else strong_f
+
+        # Sell indices: prefer avg_sell_index (engine uses that for decisions)
+        sell_index_raw = _safe_float(state.get("last_sell_index_raw"), None)
+        avg_sell_index = _safe_float(state.get("avg_sell_index"), None)
         if avg_sell_index is None:
+            # legacy fallback
+            avg_sell_index = _safe_float(state.get("last_avg_sell_index"), None)
+        if avg_sell_index is None:
+            # last resort: rolling list
             rolling = state.get("rolling_sell_index", []) or []
             if isinstance(rolling, list) and rolling:
                 try:
-                    vals = [float(x) for x in rolling if x is not None]
+                    vals = [float(x) for x in rolling if x is not None and math.isfinite(float(x))]
                     avg_sell_index = (sum(vals) / len(vals)) if vals else None
                 except Exception:
                     avg_sell_index = None
         if avg_sell_index is None:
-            avg_sell_index = sell_index if sell_index is not None else 0.0
+            avg_sell_index = sell_index_raw if sell_index_raw is not None else 0.0
 
-        mt_regime = state.get("last_mt", state.get("last_mt_regime", 0))
-        try:
-            mt_regime_int = int(mt_regime)
-        except Exception:
-            mt_regime_int = 0
-        if mt_regime_int not in (-1, 0, 1):
-            mt_regime_int = 0
+        risk_emoji = risk_label_from_sell_index(avg_sell_index, float(early_thr))
 
-        # Prefer decision engine computed thresholds (if present in tracker).
-        early_thr = None
-        strong_thr = None
-        if state.get("last_sell_thr_early") is not None:
-            try:
-                early_thr = float(state.get("last_sell_thr_early"))
-            except Exception:
-                early_thr = None
-        if state.get("last_sell_thr_strong") is not None:
-            try:
-                strong_thr = float(state.get("last_sell_thr_strong"))
-            except Exception:
-                strong_thr = None
+        # ML diagnostics (engine keys)
+        mt_prob = _safe_float(state.get("last_mt_prob"), None)
+        thr_model = _safe_float(state.get("last_mt_prob_thr_model"), None)
+        if thr_model is None:
+            thr_model = _safe_float(state.get("last_mt_prob_thr"), None)  # legacy
 
-        if early_thr is None or strong_thr is None:
-            early_thr_f, strong_thr_f = get_sell_thresholds(pnl_pct, mt_regime_int)
-            early_thr = early_thr if early_thr is not None else early_thr_f
-            strong_thr = strong_thr if strong_thr is not None else strong_thr_f
-
-        risk_emoji = risk_label_from_sell_index(sell_index, float(early_thr))
-
-        mt_prob = state.get("last_mt_prob", None)
-        mt_thr = state.get("last_mt_prob_thr", None)
-        mt_gate = state.get("last_mt_gate", None)
+        thr_used = _safe_float(state.get("ml_prob_thr_used"), None)
+        gate_used = _safe_float(state.get("last_mt_gate_used"), None)
+        gate_model = _safe_float(state.get("last_mt_gate_model"), None)
         mt_sell = state.get("last_mt_sell_signal", None)
-        mt_model = state.get("last_mt_model_type", None)
-        mt_src = state.get("last_mt_prob_source", None)
+        model_txt = state.get("last_mt_model_type", None) or "?"
+        src_txt = state.get("last_mt_prob_source", None) or "?"
+
+        det_contrib = _safe_float(state.get("last_contrib_det"), None)
+        ml_contrib = _safe_float(state.get("last_contrib_ml"), None)
+
+        # Sanity-check: compute normalized gate from ramp definition, if possible
+        gate_calc = None
+        if mt_prob is not None and thr_used is not None:
+            p = float(_clamp(mt_prob, 0.0, 1.0))
+            thr = float(_clamp(thr_used, 0.0, 0.999999))
+            denom = (1.0 - thr)
+            if denom > 0 and p >= thr:
+                gate_calc = float(_clamp((p - thr) / denom, 0.0, 1.0))
+            elif p < thr:
+                gate_calc = 0.0
+
         last_alert = state.get("last_alert_time", None)
 
         stock_list.append({
@@ -680,26 +666,31 @@ async def list(ctx):
             "weak_days": weak_days,
             "weak_req": weak_req,
             "avg_sell_index": float(avg_sell_index),
+            "sell_index_raw": sell_index_raw,
             "emoji": risk_emoji,
             "pnl_lei": pnl_lei,
             "pnl_pct": pnl_pct,
             "ccy": ccy,
             "fx": float(fx_to_ron),
-            "sell_index": sell_index,
-            "sell_index_sort": sell_index if sell_index is not None else -1.0,
             "early_thr": float(early_thr),
             "strong_thr": float(strong_thr),
             "mt_regime": mt_regime_int,
             "mt_prob": mt_prob,
-            "mt_thr": mt_thr,
-            "mt_gate": mt_gate,
+            "thr_model": thr_model,
+            "thr_used": thr_used,
+            "gate_used": gate_used,
+            "gate_calc": gate_calc,
+            "gate_model": gate_model,
             "mt_sell": mt_sell,
-            "mt_model": mt_model,
-            "mt_src": mt_src,
+            "model": model_txt,
+            "src": src_txt,
+            "det_contrib": det_contrib,
+            "ml_contrib": ml_contrib,
             "last_alert": last_alert,
+            "sort_key": float(avg_sell_index),
         })
 
-    stock_list.sort(key=lambda x: x["sell_index_sort"], reverse=True)
+    stock_list.sort(key=lambda x: x["sort_key"], reverse=True)
 
     ticker_blocks = []
     for s in stock_list:
@@ -708,29 +699,37 @@ async def list(ctx):
 
         lines = [
             f"**{s['ticker']}** — {s['emoji']}",
-            f"    WeakDays {float(s['weak_days']):.1f}/{int(s['weak_req'])} | AvgSellIndex {float(s['avg_sell_index']):.2f}{pct_txt}",
+            f"    WeakDays {int(s['weak_days'])}/{int(s['weak_req'])} | AvgSellIndex {float(s['avg_sell_index']):.2f}{pct_txt}",
             f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} RON ({s['ccy']}→RON fx={s['fx']:.4f})",
             "",
+            f"    🧠 Thr: early {s['early_thr']:.2f} | strong {s['strong_thr']:.2f} | MT {int(s['mt_regime']):+d}",
         ]
 
-        if s["sell_index"] is not None:
-            lines.append(
-                f"    🧠 SellIndex: {float(s['sell_index']):.2f} / {s['early_thr']:.2f} (strong {s['strong_thr']:.2f}) | MT {int(s['mt_regime']):+d}"
-            )
-            lines.append("")
-        else:
-            lines.append(f"    🧠 SellIndex: n/a / {s['early_thr']:.2f} (strong {s['strong_thr']:.2f}) | MT {int(s['mt_regime']):+d}")
+        if s["sell_index_raw"] is not None:
+            lines.append(f"    🧾 SellIndex_raw: {float(s['sell_index_raw']):.2f}")
+        lines.append("")
+
+        if s["det_contrib"] is not None or s["ml_contrib"] is not None:
+            det_txt = f"{float(s['det_contrib']):.2f}" if s["det_contrib"] is not None else "n/a"
+            ml_txt = f"{float(s['ml_contrib']):.2f}" if s["ml_contrib"] is not None else "n/a"
+            lines.append(f"    🧩 Mix: Det {det_txt} | ML {ml_txt}")
             lines.append("")
 
         if s["mt_prob"] is not None:
-            thr_txt = f"{float(s['mt_thr']):.2f}" if s["mt_thr"] is not None else "n/a"
-            gate_txt = f"{float(s['mt_gate']):.2f}" if s["mt_gate"] is not None else "n/a"
-            sell_txt = "SELL" if bool(s["mt_sell"]) else "NO-SELL"
-            model_txt = s["mt_model"] or "?"
-            src_txt = s["mt_src"] or "?"
+            thr_model_txt = f"{float(s['thr_model']):.2f}" if s["thr_model"] is not None else "n/a"
+            thr_used_txt = f"{float(s['thr_used']):.2f}" if s["thr_used"] is not None else "n/a"
+
+            gate_used_txt = f"{float(s['gate_used']):.2f}" if s["gate_used"] is not None else "n/a"
+            gate_calc_txt = f"{float(s['gate_calc']):.2f}" if s["gate_calc"] is not None else "n/a"
+            gate_model_txt = f"{float(s['gate_model']):.2f}" if s["gate_model"] is not None else "n/a"
+
+            sell_txt = "SELL" if bool(s["mt_sell"]) else "HOLD"
             lines.append(
-                f"    🤖 MT-brain | {sell_txt} | P {float(s['mt_prob']):.2f} (thr {thr_txt}) | Gate {gate_txt} | {model_txt} | src={src_txt}"
+                f"    🤖 MT-brain | {sell_txt} | P {float(s['mt_prob']):.3f} "
+                f"(thr_model {thr_model_txt}, thr_used {thr_used_txt})"
             )
+            lines.append(f"    🔧 gate_used {gate_used_txt} | gate_calc {gate_calc_txt} | gate_model {gate_model_txt}")
+            lines.append(f"    📦 model={s['model']} | src={s['src']}")
             lines.append("")
 
         if s["last_alert"]:
@@ -765,5 +764,8 @@ if __name__ == "__main__":
 
     print("✅ DISCORD_BOT_TOKEN found, length:", len(TOKEN))
     print("Preview:", TOKEN[:8], "...")
-    Thread(target=keep_alive).start()
+
+    # Run keep_alive only once, in a background thread.
+    Thread(target=keep_alive, daemon=True).start()
+
     bot.run(TOKEN)
