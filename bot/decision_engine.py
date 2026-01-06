@@ -1,9 +1,29 @@
+#!/usr/bin/env python3
+"""
+decision_engine.py (v9.1 fixed)
+
+Key fixes vs prior iterations:
+- Uses NYSE trading-day key (America/New_York) for:
+    - daily reset
+    - rolling_sell_index update (once per market-day)
+    - weak_days update (once per market-day)
+  This prevents UTC-midnight from splitting one US market day.
+- Aligns strictly with llm_predict.SellBrain.predict() output keys:
+    mt_prob, mt_prob_threshold, mt_sell_signal, mt_gate, mt_weight,
+    pred_sellscore, sell_threshold, model_type, prob_source
+- Stores consistent tracker keys and also keeps a few legacy aliases (same values)
+  so older UI readers do not display contradictory/stale fields.
+- ML contribution uses your requested ramp:
+    at p == thr_used -> contributes ML_RAMP_START (default 0.01)
+    at p == 1.0      -> contributes ml_cap_used
+"""
+
 import argparse
 import json
 import os
 import subprocess
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -12,7 +32,7 @@ import yfinance as yf
 from tracker import load_data
 from notify import send_discord_alert
 from fetch_data import compute_indicators
-from llm_predict import SellBrain, run_batch_predictions  # MT Brain integration (bear/neutral/bull)
+from llm_predict import SellBrain, run_batch_predictions
 
 TRACKER_FILE = "bot/sell_alerts_tracker.json"
 LIVE_RESULTS_CSV = "bot/live_results.csv"
@@ -20,28 +40,23 @@ LLM_INPUT_CSV = "bot/LLM_data/input_llm/llm_input_latest.csv"
 LLM_PRED_CSV = "bot/LLM_data/input_llm/llm_predictions.csv"
 
 # ---------------------------
-# V9.1 regime params (loaded from agent best_params.json when available)
+# V9 regime params (loaded from agent best_params.json when available)
 # ---------------------------
 
-# Reduced profit easing (no +0% tier, and smaller magnitudes than earlier).
 _PROFIT_ADJ = [
     (50.0, -0.08),
     (30.0, -0.055),
     (10.0, -0.03),
 ]
 
-# Strong sell multiplier (strong = 1.25 * early)
 STRONG_SELL_MULT = 1.25
 
-# Deterministic normalization scale by regime.
-# Bigger scale => deterministic contributes LESS to SellIndex.
 RULE_SCALE_BY_MT = {
-    -1: 8.0,   # bear: deterministic counts more
-     0: 10.0,  # neutral: baseline
-     1: 12.0,  # bull: deterministic counts less (gives ML relatively more influence)
+    -1: 8.0,
+     0: 10.0,
+     1: 12.0,
 }
 
-# Fallback regime params (used if best_params.json missing)
 _FALLBACK_PARAMS = {
     -1: {
         "base_early": 0.6154248696067058,
@@ -69,13 +84,10 @@ _FALLBACK_PARAMS = {
     },
 }
 
-SELL_INDEX_ROLL_N = 7  # rolling window size for avg_sell_index
+SELL_INDEX_ROLL_N = 7
 
-# ML ramp behavior
-ML_RAMP_START = 0.01  # absolute contribution when P == thr (not a fraction)
-
-# Optional debug
-RAMP_DEBUG = os.getenv("RAMP_DEBUG", "0").strip().lower() in ("1", "true", "yes", "on")
+ML_RAMP_START = float(os.getenv("ML_RAMP_START", "0.01") or 0.01)
+RAMP_DEBUG = (os.getenv("RAMP_DEBUG", "").strip() == "1")
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -94,45 +106,27 @@ def _safe_float(x, default=None):
         return default
 
 
-def _safe_int(x, default=None):
-    try:
-        if x is None:
-            return default
-        if isinstance(x, str) and x.strip() == "":
-            return default
-        return int(float(x))
-    except Exception:
-        return default
+def _today_utc() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d")
 
 
-def _utc_ts() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _market_day_key() -> str:
+def _market_day_key(now_utc: Optional[datetime] = None) -> str:
     """
-    Use US market date (America/New_York) for:
-      - tracker 'date'
-      - rolling sell index update
-      - weak-days update
-
-    This prevents UTC-midnight from splitting a single US trading day.
+    Returns YYYY-MM-DD in America/New_York so 'once per day' aligns with US market day.
     """
+    now_utc = now_utc or datetime.utcnow()
     try:
         from zoneinfo import ZoneInfo  # py3.9+
         ny = ZoneInfo("America/New_York")
-        return datetime.now(tz=ny).strftime("%Y-%m-%d")
+        dt_local = now_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(ny)
+        return dt_local.strftime("%Y-%m-%d")
     except Exception:
-        # Fallback: UTC date
-        return datetime.utcnow().strftime("%Y-%m-%d")
+        # Safe fallback (UTC)
+        return now_utc.strftime("%Y-%m-%d")
 
 
 def _load_agent_best_params() -> dict:
-    """Load agent best_params.json (v9.1) relative to this script's directory.
-
-    Returns a dict keyed by int MT (-1/0/1) with required keys:
-      base_early, det_cap, ml_cap, ml_prob_thr, weak_frac, weak_req
-    """
+    """Load best_params.json relative to this script's directory."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     env_path = (os.getenv("AGENT_BEST_PARAMS_PATH") or os.getenv("BEST_PARAMS_PATH") or "").strip()
@@ -141,15 +135,14 @@ def _load_agent_best_params() -> dict:
         env_candidate = env_path if os.path.isabs(env_path) else os.path.join(script_dir, env_path)
 
     candidates = [
-        env_candidate,  # explicit override
-        os.path.join(script_dir, "best_params.json"),                 # bot/best_params.json (next to this file)
-        os.path.join(os.path.dirname(script_dir), "best_params.json") # repo root/best_params.json
+        env_candidate,
+        os.path.join(script_dir, "best_params.json"),
+        os.path.join(os.path.dirname(script_dir), "best_params.json"),
     ]
 
     src = None
     raw = None
     tried = []
-
     for p in candidates:
         if not p:
             continue
@@ -205,7 +198,6 @@ def _load_agent_best_params() -> dict:
 
 
 def compute_sell_threshold(base_early: float, pnl_pct: Optional[float]) -> float:
-    """Apply reduced profit-tier adjustments to the EARLY threshold."""
     adj = 0.0
     if pnl_pct is not None and np.isfinite(float(pnl_pct)):
         p = float(pnl_pct)
@@ -223,7 +215,7 @@ def compute_strong_threshold(early_thr: float) -> float:
 
 
 # ---------------------------
-# FX helpers (multi-currency; cached)
+# FX helpers (cached)
 # ---------------------------
 _FX_CACHE = {}  # currency -> (rate, ts_utc)
 _TICKER_CCY_CACHE = {}
@@ -250,7 +242,6 @@ def get_ticker_currency(ticker: str) -> str:
     t = (ticker or "").upper().strip()
     if t in _TICKER_CCY_CACHE:
         return _TICKER_CCY_CACHE[t]
-
     ccy = "USD"
     try:
         yt = yf.Ticker(t)
@@ -261,7 +252,6 @@ def get_ticker_currency(ticker: str) -> str:
             ccy = info.get("currency") or ccy
     except Exception:
         pass
-
     ccy = (ccy or "USD").upper().strip()
     _TICKER_CCY_CACHE[t] = ccy
     return ccy
@@ -342,7 +332,6 @@ def _run(cmd: list) -> int:
 
 def git_commit_tracker():
     print("📝 Committing updated tracker, results, and MT datasets...")
-
     _run(["git", "config", "--global", "user.email", "bot@github.com"])
     _run(["git", "config", "--global", "user.name", "AutoBot"])
 
@@ -365,7 +354,7 @@ def git_commit_tracker():
 
 
 # ---------------------------
-# Deterministic scoring (points-based)
+# Deterministic scoring
 # ---------------------------
 def check_sell_conditions(
     ticker: str,
@@ -385,10 +374,6 @@ def check_sell_conditions(
     info=None,
     debug: bool = True,
 ):
-    """Returns: (rule_sell, msg, current_price, avg_score, score, reasons)
-
-    Note: hard stop-loss triggers at -25% unless oversold or stabilizing.
-    """
     if info is None:
         info = {}
 
@@ -400,7 +385,6 @@ def check_sell_conditions(
 
     reasons = []
 
-    # Hard stop-loss (SELL) unless oversold exception or stabilizing momentum.
     if pnl_pct is not None and float(pnl_pct) <= -25:
         if rsi is not None and float(rsi) < 35:
             return False, f"Oversold RSI={float(rsi):.1f} → HOLD", current_price, 0.0, 0.0, ["HardStop: oversold_exception"]
@@ -410,7 +394,6 @@ def check_sell_conditions(
 
     score = 0.0
 
-    # Momentum
     if momentum is not None:
         m = float(momentum)
         if m < -0.8:
@@ -420,7 +403,6 @@ def check_sell_conditions(
             score += 1.0
             reasons.append("Weak momentum")
 
-    # RSI
     if rsi is not None:
         r = float(rsi)
         if r < 35:
@@ -433,7 +415,6 @@ def check_sell_conditions(
             score += 0.5
             reasons.append("RSI overbought")
 
-    # MACD
     if macd is not None and macd_signal is not None:
         try:
             if float(macd) < float(macd_signal):
@@ -442,7 +423,6 @@ def check_sell_conditions(
         except Exception:
             pass
 
-    # MA50 / MA200
     if ma50 is not None:
         try:
             if float(current_price) < float(ma50):
@@ -459,7 +439,6 @@ def check_sell_conditions(
         except Exception:
             pass
 
-    # Support
     if support is not None:
         try:
             if float(current_price) < float(support):
@@ -468,7 +447,6 @@ def check_sell_conditions(
         except Exception:
             pass
 
-    # Relative volume
     if volume is not None:
         try:
             if float(volume) > 1.3:
@@ -477,7 +455,6 @@ def check_sell_conditions(
         except Exception:
             pass
 
-    # ATR + loss
     if atr is not None and pnl_pct is not None:
         try:
             if float(atr) > 7 and float(pnl_pct) < 0:
@@ -486,7 +463,6 @@ def check_sell_conditions(
         except Exception:
             pass
 
-    # Rolling average (deterministic score)
     rolling = info.get("rolling_scores", []) or []
     rolling.append(float(score))
     if len(rolling) > 7:
@@ -494,7 +470,6 @@ def check_sell_conditions(
     info["rolling_scores"] = rolling
     avg_score = (sum(rolling) / len(rolling)) if rolling else float(score)
 
-    # Weak streak decay (deterministic-only; retained for legacy diagnostics)
     info["recent_peak"] = max(float(info.get("recent_peak", current_price)), float(current_price))
 
     now_utc = datetime.utcnow()
@@ -530,7 +505,6 @@ def check_sell_conditions(
     info["weak_streak"] = max(0.0, round(float(info.get("weak_streak", 0.0)), 1))
 
     if debug:
-        # This is the legacy deterministic weak_streak (not the new WeakDays gating).
         print(f"⏳ {ticker}: DetWeakStreak {info['weak_streak']:.1f} — DetAvgScore={avg_score:.1f}")
 
     return False, "Holding steady", current_price, float(avg_score), float(score), reasons
@@ -559,39 +533,37 @@ def _load_llm_input_map() -> dict:
         df = pd.read_csv(LLM_INPUT_CSV)
         if "Ticker" not in df.columns:
             return {}
-
-        # Convert NaNs to None to reduce surprises in downstream model calls.
-        df = df.replace({np.nan: None})
-
         m = {}
         for _, r in df.iterrows():
             t = str(r.get("Ticker", "")).strip()
             if t:
-                m[t] = r.to_dict()
+                row = r.to_dict()
+                # sanitize NaNs to None to reduce downstream surprises
+                for k, v in list(row.items()):
+                    if isinstance(v, float) and np.isnan(v):
+                        row[k] = None
+                m[t] = row
         return m
     except Exception as e:
         print(f"⚠️ Failed reading {LLM_INPUT_CSV}: {e}")
         return {}
 
 
-def _ml_ramp_contrib(p: float, thr: float, cap: float, start: float):
+def _ml_ramp_contrib(mt_prob: Optional[float], *, thr_used: float, cap: float, start: float) -> Tuple[float, float]:
     """
-    Returns (ml_contrib, gate_norm) where gate_norm is normalized [0..1] above threshold:
-      gate = (p-thr)/(1-thr) if p>=thr else 0
-      contrib = start + (cap-start)*gate
+    Returns (ml_contrib, gate_norm) where gate_norm in [0,1] for p in [thr_used, 1.0].
     """
-    p = float(_clamp(float(p), 0.0, 1.0))
-    thr = float(_clamp(float(thr), 0.0, 0.999999))
+    if mt_prob is None or not np.isfinite(float(mt_prob)):
+        return 0.0, 0.0
+    p = float(_clamp(float(mt_prob), 0.0, 1.0))
+    thr = float(_clamp(float(thr_used), 0.0, 0.999999))
     cap = max(0.0, float(cap))
-    start = float(_clamp(float(start), 0.0, cap))
-
     if cap <= 0.0 or p < thr:
         return 0.0, 0.0
-
     denom = (1.0 - thr)
     gate = (p - thr) / denom if denom > 0 else 1.0
     gate = float(_clamp(gate, 0.0, 1.0))
-
+    start = float(_clamp(float(start), 0.0, cap))
     contrib = start + (cap - start) * gate
     contrib = float(_clamp(contrib, 0.0, cap))
     return contrib, gate
@@ -603,9 +575,11 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
     tracker = load_tracker()
 
-    day_key = _market_day_key()
+    now_utc = datetime.utcnow()
+    day_key = _market_day_key(now_utc)
+
     if tracker.get("date") != day_key:
-        print(f"🧹 Resetting daily alert flag for market-day {day_key}")
+        print(f"🧹 Resetting daily alert flag for market-day={day_key}")
         tracker["date"] = day_key
         tracker["had_alerts"] = False
 
@@ -634,9 +608,9 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
     live_rows = []
 
     for ticker, info in stocks.items():
-        avg_price = float(info.get("avg_price", 0))
-        invested_lei = float(info.get("invested_lei", 0))
-        shares = float(info.get("shares", 0))
+        avg_price = float(info.get("avg_price", 0) or 0)
+        invested_lei = float(info.get("invested_lei", 0) or 0)
+        shares = float(info.get("shares", 0) or 0)
         if avg_price <= 0 or invested_lei <= 0 or shares <= 0:
             continue
 
@@ -647,35 +621,39 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         current_price = float(indicators["current_price"])
         info_state = (tracker.get("tickers", {}) or {}).get(ticker, {}) or {}
 
-        # If buy price changed materially (new position / averaging), reset rolling state.
+        # Reset rolling/weak state if buy price changed materially
         last_buy = _safe_float(info_state.get("last_buy_price"), None)
         if last_buy is not None and last_buy > 0:
             if abs(float(last_buy) - float(avg_price)) / float(last_buy) > 0.02:
                 info_state["rolling_sell_index"] = []
                 info_state["weak_days"] = 0
-                info_state["last_roll_market_date"] = None
-                info_state["last_weak_update_market_date"] = None
+                info_state["last_roll_day"] = None
+                info_state["last_weak_update_day"] = None
 
         ccy = get_ticker_currency(ticker)
         fx_to_ron = get_fx_to_ron(ccy)
         pnl_lei = current_price * shares * fx_to_ron - invested_lei
         pnl_pct = (pnl_lei / invested_lei) * 100.0 if invested_lei else 0.0
 
-        # MarketTrend (prefer ML input row; fallback to indicator string)
+        # MarketTrend from LLM input map
         ml_row = llm_input_map.get(ticker, {}) or {}
-        mt = _safe_int(ml_row.get("MarketTrend"), 0) or 0
+        mt = int(_safe_float(ml_row.get("MarketTrend"), 0) or 0)
         if mt not in (-1, 0, 1):
             mt = 0
 
-        # Reset WeakDays if MT regime changed (prevents cross-regime accumulation)
-        prev_mt = _safe_int(info_state.get("last_mt"), None)
+        # Reset WeakDays if regime changes
+        prev_mt = info_state.get("last_mt")
+        try:
+            prev_mt = int(prev_mt) if prev_mt is not None else None
+        except Exception:
+            prev_mt = None
         if prev_mt is not None and prev_mt in (-1, 0, 1) and prev_mt != mt:
             info_state["weak_days"] = 0
-            info_state["last_weak_update_market_date"] = None
+            info_state["last_weak_update_day"] = None
 
         rp = agent_params.get(mt, agent_params.get(0, _FALLBACK_PARAMS[0]))
 
-        # Deterministic rule scoring
+        # Deterministic score
         rule_sell, rule_msg, _, det_avg_score, det_score, rule_reasons = check_sell_conditions(
             ticker,
             avg_price,
@@ -699,7 +677,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         rule_norm = min(1.0, float(det_avg_score) / rule_scale) if rule_scale > 0 else 0.0
         det_contrib = min(float(rp["det_cap"]), float(rule_norm))
 
-        # ML probability
+        # MT brain
         mt_pred = None
         if sell_brain and ml_row:
             try:
@@ -718,18 +696,20 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         sell_threshold_model = None if not mt_pred else mt_pred.get("sell_threshold")
         mt_sell_signal = False if not mt_pred else bool(mt_pred.get("mt_sell_signal") or False)
         model_type = None if not mt_pred else mt_pred.get("model_type")
+        prob_source = None if not mt_pred else mt_pred.get("prob_source")
 
-        # V9.1: use agent-tuned ML probability threshold and cap, but ramp contribution from threshold -> 1.0
+        # ML ramp uses agent params (thr_used/cap_used)
         ml_prob_thr_used = float(rp["ml_prob_thr"])
         ml_cap_used = float(rp["ml_cap"])
 
-        ml_contrib = 0.0
-        ml_gate_used = 0.0  # normalized gate [0..1] above threshold
+        ml_contrib, ml_gate_used = _ml_ramp_contrib(
+            mt_prob,
+            thr_used=ml_prob_thr_used,
+            cap=ml_cap_used,
+            start=ML_RAMP_START,
+        )
 
-        if mt_prob is not None and np.isfinite(float(mt_prob)):
-            ml_contrib, ml_gate_used = _ml_ramp_contrib(float(mt_prob), ml_prob_thr_used, ml_cap_used, ML_RAMP_START)
-
-        if RAMP_DEBUG and mt_prob is not None and np.isfinite(float(mt_prob)):
+        if RAMP_DEBUG and mt_prob is not None:
             print(
                 f"[RAMP_DEBUG] {ticker} mt={mt} "
                 f"p={float(mt_prob):.6f} thr_used={ml_prob_thr_used:.6f} "
@@ -738,37 +718,36 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
 
         sell_index_raw = float(_clamp(det_contrib + ml_contrib, 0.0, 1.0))
 
-        # Rolling avg sell index (update once per market day)
+        # Rolling avg sell index (append EVERY run; window = last N runs)
         roll = info_state.get("rolling_sell_index", []) or []
-        last_roll_day = info_state.get("last_roll_market_date")
-        if last_roll_day != day_key:
-            roll.append(float(sell_index_raw))
-            if len(roll) > int(SELL_INDEX_ROLL_N):
-                roll = roll[-int(SELL_INDEX_ROLL_N):]
-            info_state["rolling_sell_index"] = roll
-            info_state["last_roll_market_date"] = day_key
+        roll.append(float(sell_index_raw))
+        if len(roll) > int(SELL_INDEX_ROLL_N):
+            roll = roll[-int(SELL_INDEX_ROLL_N):]
+        info_state["rolling_sell_index"] = roll
+        # Keep last_roll_day for visibility/backward-compat; not used for gating anymore.
+        info_state["last_roll_day"] = day_key
         avg_sell_index = float(sum(roll) / len(roll)) if roll else float(sell_index_raw)
 
         # Thresholds
         sell_thr_early = compute_sell_threshold(float(rp["base_early"]), pnl_pct)
         sell_thr_strong = compute_strong_threshold(sell_thr_early)
 
-        # WeakDays gating based on avg_sell_index (update once per market day)
+        # WeakDays (once per market-day)
         weak_req = int(rp["weak_req"])
         weak_frac = float(rp["weak_frac"])
         weak_thr = float(weak_frac) * float(sell_thr_early)
 
-        weak_days = int(_safe_int(info_state.get("weak_days"), 0) or 0)
-        last_weak_day = info_state.get("last_weak_update_market_date")
-        if last_weak_day != day_key:
+        weak_days = int(_safe_float(info_state.get("weak_days"), 0) or 0)
+        last_weak_update_day = info_state.get("last_weak_update_day")
+        if last_weak_update_day != day_key:
             if float(avg_sell_index) >= float(weak_thr):
                 weak_days += 1
             else:
                 weak_days = 0
             info_state["weak_days"] = int(weak_days)
-            info_state["last_weak_update_market_date"] = day_key
+            info_state["last_weak_update_day"] = day_key
 
-        # Profit bypass (winners can bypass weak gating)
+        # Profit bypass
         bypass_weak = bool(pnl_pct is not None and np.isfinite(float(pnl_pct)) and float(pnl_pct) >= 50.0)
 
         decision = False
@@ -799,52 +778,34 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         )
 
         flags_txt = "none" if not rule_reasons else "; ".join(rule_reasons[:6]) + (" ..." if len(rule_reasons) > 6 else "")
-        if mt_prob is not None and np.isfinite(float(mt_prob)):
+        if mt_prob is not None:
             print(
                 f"    Mix: Det +{det_contrib:.2f} (DetAvgScore {det_avg_score:.1f}/{rule_scale:.0f}, cap {float(rp['det_cap']):.2f}) | "
                 f"ML +{ml_contrib:.2f} (P {float(mt_prob):.2f} thr_used {ml_prob_thr_used:.2f}, cap {float(rp['ml_cap']):.2f})"
             )
         else:
             print(
-                f"    Mix: Det +{det_contrib:.2f} (DetAvgScore {det_avg_score:.1f}/{rule_scale:.0f}, cap {float(rp['det_cap']):.2f}) | ML +0.00 (n/a)"
+                f"    Mix: Det +{det_contrib:.2f} (DetAvgScore {det_avg_score:.1f}/{rule_scale:.0f}, cap {float(rp['det_cap']):.2f}) | "
+                f"ML +0.00 (n/a)"
             )
+
         print(f"    RuleFlags: {flags_txt}")
 
-        if mt_prob is not None and np.isfinite(float(mt_prob)):
+        if mt_prob is not None:
             thr_model_txt = f"{float(mt_prob_thr_model):.2f}" if mt_prob_thr_model is not None else "n/a"
             print(
                 f"    ML: {'SELL' if mt_sell_signal else 'HOLD'} | P {float(mt_prob):.3f} (thr_model {thr_model_txt}) | "
                 f"GateUsed {ml_gate_used:.2f} | GateModel {mt_gate_model:.2f} | mt_weight {mt_weight:.2f} | "
                 f"pred {('%.3f' % float(pred_sellscore)) if pred_sellscore is not None else 'n/a'} vs sell_thr {('%.3f' % float(sell_threshold_model)) if sell_threshold_model is not None else 'n/a'} | "
-                f"{(model_type or 'model').strip()}"
+                f"{(model_type or 'model').strip()} | src={prob_source or 'n/a'}"
             )
 
-        now_utc_ts = _utc_ts()
-
         # ---------------------------
-        # Persist diagnostic state for UI (single, consistent key-set)
+        # Persist state (authoritative keys + legacy aliases)
         # ---------------------------
+        info_state["last_checked_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        info_state["last_market_day"] = day_key
 
-        # Optional cleanup of known legacy/misleading keys
-        for k in (
-            "last_score",
-            "last_sell_index",
-            "sell_index",
-            "last_sell_index_date",
-            "last_w_rule",
-            "last_w_mt",
-            "last_contrib_rule",
-            "last_contrib_rule_ml",
-            "last_mt_gate",        # legacy key (ambiguous)
-            "last_mt_prob_thr",    # legacy key
-            "last_mt_sell_signal_used",
-            "last_mt_sell_signal_model",
-            "last_weak_eval_date", # legacy key
-        ):
-            if k in info_state:
-                info_state.pop(k, None)
-
-        info_state["last_checked_time"] = now_utc_ts
         info_state["last_signal_label"] = label
         info_state["last_buy_price"] = float(avg_price)
 
@@ -855,17 +816,18 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         info_state["last_sell_index_raw"] = float(sell_index_raw)
         info_state["avg_sell_index"] = float(avg_sell_index)
 
+        # Legacy aliases (kept equal to authoritative values)
+        info_state["sell_index"] = float(sell_index_raw)
+        info_state["last_sell_index"] = float(sell_index_raw)
+        info_state["last_score"] = float(det_avg_score)
+
         info_state["last_sell_thr_early"] = float(sell_thr_early)
         info_state["last_sell_thr_strong"] = float(sell_thr_strong)
-
-        info_state["rolling_sell_index"] = list(info_state.get("rolling_sell_index", []) or [])
-        info_state["last_roll_market_date"] = info_state.get("last_roll_market_date")
 
         info_state["weak_days"] = int(weak_days)
         info_state["weak_req"] = int(weak_req)
         info_state["weak_frac"] = float(weak_frac)
         info_state["weak_thr"] = float(weak_thr)
-        info_state["last_weak_update_market_date"] = info_state.get("last_weak_update_market_date")
 
         info_state["det_cap"] = float(rp["det_cap"])
         info_state["ml_cap"] = float(rp["ml_cap"])
@@ -873,6 +835,9 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
 
         info_state["last_contrib_det"] = float(det_contrib)
         info_state["last_contrib_ml"] = float(ml_contrib)
+        # legacy names
+        info_state["last_contrib_rule"] = float(det_contrib)
+        info_state["last_contrib_mt"] = float(ml_contrib)
 
         info_state["last_rule_flags"] = list(rule_reasons) if isinstance(rule_reasons, list) else []
 
@@ -882,23 +847,25 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
 
         info_state["last_mt_prob"] = None if mt_prob is None else float(mt_prob)
         info_state["last_mt_prob_thr_model"] = None if mt_prob_thr_model is None else float(mt_prob_thr_model)
-        info_state["last_mt_gate_used"] = float(ml_gate_used)
-        info_state["last_mt_gate_model"] = float(mt_gate_model)
+        info_state["last_mt_gate_used"] = float(ml_gate_used)     # normalized ramp gate
+        info_state["last_mt_gate_model"] = float(mt_gate_model)   # model-provided gate
         info_state["last_mt_sell_signal"] = bool(mt_sell_signal)
         info_state["last_mt_weight"] = float(mt_weight)
         info_state["last_mt_pred_sellscore"] = None if pred_sellscore is None else float(pred_sellscore)
         info_state["last_mt_sell_threshold"] = None if sell_threshold_model is None else float(sell_threshold_model)
         info_state["last_mt_model_type"] = model_type
-        info_state["last_mt_prob_source"] = "model" if mt_prob is not None else "none"
+        info_state["last_mt_prob_source"] = prob_source or "model"
 
-        # Reset WeakDays after a decision to avoid repeated daily triggers.
+        # Also keep older UI fields if they exist
+        info_state["last_mt_prob_thr"] = info_state["last_mt_prob_thr_model"]
+        info_state["last_mt_gate"] = info_state["last_mt_gate_model"]
+
+        # Reset WeakDays after a decision (prevents repeated triggers)
         if decision:
             tracker["had_alerts"] = True
-            info_state["last_alert_time"] = now_utc_ts
-
-            # After an alert, reset weak counter and "lock" it for the rest of the market day.
+            info_state["last_alert_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
             info_state["weak_days"] = 0
-            info_state["last_weak_update_market_date"] = day_key
+            info_state["last_weak_update_day"] = day_key
 
             sell_alerts.append(
                 f"📈 **[{ticker}] {label}**\n"
@@ -908,15 +875,18 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
                 f"🎯 **Thr:** early {sell_thr_early:.2f} / strong {sell_thr_strong:.2f}\n"
                 f"⏳ **WeakDays:** {weak_days}/{weak_req} (weak_thr {weak_thr:.2f})\n"
                 f"🧩 Mix: Det +{det_contrib:.2f} | ML +{ml_contrib:.2f}\n"
+                f"🤖 MT: P {float(mt_prob):.3f} (thr_model {(float(mt_prob_thr_model) if mt_prob_thr_model is not None else 'n/a')}) | "
+                f"GateUsed {ml_gate_used:.2f} | GateModel {mt_gate_model:.2f} | src={prob_source or 'n/a'}\n"
                 f"🧾 Rule note: {rule_msg}\n"
-                f"🕒 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                f"🕒 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
             )
 
-        tracker["tickers"][ticker] = info_state
+        tracker.setdefault("tickers", {})[ticker] = info_state
 
         live_rows.append(
             {
-                "Timestamp": now_utc_ts,
+                "Timestamp": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "MarketDay": day_key,
                 "Ticker": ticker,
                 "decision": bool(decision),
                 "label": label,
@@ -939,14 +909,14 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
                 "det_contrib": float(det_contrib),
                 "ml_contrib": float(ml_contrib),
                 "mt_prob": None if mt_prob is None else float(mt_prob),
-                "mt_prob_thr_model": None if mt_prob_thr_model is None else float(mt_prob_thr_model),
+                "mt_prob_threshold": None if mt_prob_thr_model is None else float(mt_prob_thr_model),
                 "mt_gate_used": float(ml_gate_used),
                 "mt_gate_model": float(mt_gate_model),
                 "mt_sell_signal": bool(mt_sell_signal),
                 "pred_sellscore": None if pred_sellscore is None else float(pred_sellscore),
                 "sell_threshold_model": None if sell_threshold_model is None else float(sell_threshold_model),
                 "model_type": model_type,
-                "market_day": day_key,
+                "prob_source": prob_source,
             }
         )
 
@@ -965,9 +935,10 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
     if not test_mode:
         git_commit_tracker()
 
+    now_utc = datetime.utcnow()
     if sell_alerts:
         msg = "🚨 **SELL SIGNALS TRIGGERED** 🚨\n\n" + "\n\n".join(sell_alerts)
-        for chunk in [msg[i: i + 1900] for i in range(0, len(msg), 1900)]:
+        for chunk in [msg[i : i + 1900] for i in range(0, len(msg), 1900)]:
             try:
                 send_discord_alert(chunk)
             except Exception as e:
@@ -975,8 +946,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
     elif end_of_day and not test_mode:
         try:
             send_discord_alert(
-                "😎 All systems stable. No sell signals today.\n"
-                f"🕐 Checked at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                "😎 All systems stable. No sell signals today.\n" f"🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
             )
         except Exception as e:
             print(f"⚠️ Discord send failed: {e}")

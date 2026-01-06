@@ -720,17 +720,15 @@ async def list(ctx):
             thr_used_txt = f"{float(s['thr_used']):.2f}" if s["thr_used"] is not None else "n/a"
 
             gate_used_txt = f"{float(s['gate_used']):.2f}" if s["gate_used"] is not None else "n/a"
-            gate_calc_txt = f"{float(s['gate_calc']):.2f}" if s["gate_calc"] is not None else "n/a"
-            gate_model_txt = f"{float(s['gate_model']):.2f}" if s["gate_model"] is not None else "n/a"
 
             sell_txt = "SELL" if bool(s["mt_sell"]) else "HOLD"
             lines.append(
                 f"    🤖 MT-brain | {sell_txt} | P {float(s['mt_prob']):.3f} "
                 f"(thr_model {thr_model_txt}, thr_used {thr_used_txt})"
             )
-            lines.append(f"    🔧 gate_used {gate_used_txt} | gate_calc {gate_calc_txt} | gate_model {gate_model_txt}")
-            lines.append(f"    📦 model={s['model']} | src={s['src']}")
+            lines.append(f"    🔧 gate_used {gate_used_txt}")
             lines.append("")
+
 
         if s["last_alert"]:
             lines.append(f"    🚨 Last alert: {s['last_alert']}")
