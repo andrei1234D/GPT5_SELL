@@ -31,8 +31,8 @@ _PROFIT_ADJ = [
     (10.0, -0.03),
 ]
 
-# Strong sell bypass multiplier (strong = 1.25 * early)
-STRONG_SELL_MULT = 1.25
+# Strong sell bypass multiplier (strong = 1.3 * early)
+STRONG_SELL_MULT = 1.3
 
 # Deterministic normalization scale by regime.
 # Bigger scale => deterministic contributes LESS to SellIndex.
@@ -94,36 +94,40 @@ def _today_utc() -> str:
 
 
 def _load_agent_best_params() -> dict:
-    """Load agent best_params.json (v9) from common repo locations.
+    """Load agent best_params.json (v9) relative to this script's directory.
 
     Returns a dict keyed by int MT (-1/0/1) with required keys:
       base_early, det_cap, ml_cap, ml_prob_thr, weak_frac, weak_req
     """
-    script_dir = Path(__file__).resolve().parent
+    script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Optional override (useful in CI). If set but invalid/missing, we fall back to the standard search.
+    # Optional override (useful in CI). If provided:
+    # - absolute paths are used as-is
+    # - relative paths are resolved relative to script_dir
     env_path = (os.getenv("AGENT_BEST_PARAMS_PATH") or os.getenv("BEST_PARAMS_PATH") or "").strip()
-    env_candidate = Path(env_path) if env_path else None
+    env_candidate = None
+    if env_path:
+        env_candidate = env_path if os.path.isabs(env_path) else os.path.join(script_dir, env_path)
 
     candidates = [
-        env_candidate,                                     # explicit override (may be absolute)
-        script_dir / "best_params.json",                    # bot/best_params.json (your repo layout)
-        script_dir.parent / "best_params.json",            # repo root/best_params.json
-        Path.cwd() / "best_params.json",
-        Path.cwd() / "bot" / "best_params.json",
+        env_candidate,  # explicit override
+        os.path.join(script_dir, "best_params.json"),                # bot/best_params.json (next to this file)
+        os.path.join(os.path.dirname(script_dir), "best_params.json") # repo root/best_params.json
     ]
 
     src = None
     raw = None
     tried: list[str] = []
+
     for p in candidates:
-        if p is None:
+        if not p:
             continue
-        tried.append(str(p))
+        tried.append(p)
         try:
-            if p.exists():
-                raw = json.loads(p.read_text(encoding="utf-8"))
-                src = str(p)
+            if os.path.exists(p) and os.path.getsize(p) > 0:
+                with open(p, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                src = p
                 break
         except Exception:
             raw = None
