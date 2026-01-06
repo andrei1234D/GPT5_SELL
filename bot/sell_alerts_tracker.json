@@ -7,15 +7,7 @@
       "recent_peak": 23.829999923706055,
       "last_checked_price": 23.829999923706055,
       "last_checked_time": "2026-01-06T17:20:01Z",
-      "rolling_scores": [
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.5
-      ],
+      "rolling_scores": [1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
       "last_decay_date": "2026-01-06",
       "was_above_47": false,
       "last_pnl_pct": 38.22480159386562,
@@ -41,16 +33,12 @@
       "last_mt_prob_source": "model",
       "last_fx_to_ron": 4.350039958953857,
       "last_rule_score": 3.5,
-      "last_rule_flags": [
-        "MACD bearish"
-      ],
+      "last_rule_flags": ["MACD bearish"],
       "last_rule_scale": 12.0,
       "last_sell_thr_early": 0.49743244455785746,
       "last_sell_thr_strong": 0.6217905556973218,
       "rolling_sell_index": [
-        0.14583333333333334,
-        0.20833333333333334,
-        0.1369047619047619
+        0.14583333333333334, 0.20833333333333334, 0.1369047619047619
       ],
       "avg_sell_index": 0.1636904761904762,
       "weak_days": 0,
@@ -81,15 +69,7 @@
       "last_alert_time": "2025-11-26T15:41:38Z",
       "last_checked_price": 180.99000549316406,
       "last_checked_time": "2026-01-06T17:20:01Z",
-      "rolling_scores": [
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
+      "rolling_scores": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
       "last_decay_date": "2026-01-06",
       "was_above_47": false,
       "last_pnl_pct": 0.2554541523752617,
@@ -119,11 +99,7 @@
       "last_rule_scale": 12.0,
       "last_sell_thr_early": 0.5524324445578574,
       "last_sell_thr_strong": 0.6905405556973219,
-      "rolling_sell_index": [
-        0.05833333333333333,
-        0.047619047619047616,
-        0.0
-      ],
+      "rolling_sell_index": [0.05833333333333333, 0.047619047619047616, 0.0],
       "avg_sell_index": 0.03531746031746031,
       "weak_days": 0,
       "weak_thr": 0.4567329492502491,
@@ -152,15 +128,7 @@
       "recent_peak": 334.2300109863281,
       "last_checked_price": 265.9200134277344,
       "last_checked_time": "2026-01-06T17:20:02Z",
-      "rolling_scores": [
-        0.5,
-        0.5,
-        0.5,
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
+      "rolling_scores": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
       "last_decay_date": "2026-01-06",
       "was_above_47": true,
       "last_alert_time": "2026-01-06T17:20:02Z",
@@ -187,16 +155,12 @@
       "last_mt_prob_source": "model",
       "last_fx_to_ron": 4.350039958953857,
       "last_rule_score": 0.0,
-      "last_rule_flags": [
-        "RSI overbought"
-      ],
+      "last_rule_flags": ["RSI overbought"],
       "last_rule_scale": 12.0,
       "last_sell_thr_early": 0.47243244455785743,
       "last_sell_thr_strong": 0.5905405556973218,
       "rolling_sell_index": [
-        0.37675349299534666,
-        0.8745916573252441,
-        0.2323115189857738
+        0.37675349299534666, 0.2323115189857738, 0.374591657325244
       ],
       "avg_sell_index": 0.49455222310212155,
       "weak_days": 0,
@@ -226,15 +190,7 @@
       "recent_peak": 166.77000427246094,
       "last_checked_price": 155.13999938964844,
       "last_checked_time": "2025-11-27T19:19:27Z",
-      "rolling_scores": [
-        3.0,
-        3.0,
-        3.0,
-        3.0,
-        3.0,
-        3.0,
-        3.0
-      ],
+      "rolling_scores": [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0],
       "last_decay_date": "2025-11-27",
       "was_above_47": false,
       "last_alert_time": "2025-11-24T13:50:44Z",
@@ -245,15 +201,7 @@
       "recent_peak": 285.9849853515625,
       "last_checked_price": 266.9800109863281,
       "last_checked_time": "2026-01-06T17:20:02Z",
-      "rolling_scores": [
-        4.0,
-        4.0,
-        4.0,
-        4.0,
-        4.0,
-        4.0,
-        4.0
-      ],
+      "rolling_scores": [4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0],
       "last_decay_date": "2026-01-06",
       "was_above_47": false,
       "last_alert_time": "2025-11-21T12:30:49Z",
@@ -289,9 +237,7 @@
       "last_sell_thr_early": 0.5524324445578574,
       "last_sell_thr_strong": 0.6905405556973219,
       "rolling_sell_index": [
-        0.14583333333333334,
-        0.19047619047619047,
-        0.2916666666666667
+        0.14583333333333334, 0.19047619047619047, 0.2916666666666667
       ],
       "avg_sell_index": 0.20932539682539683,
       "weak_days": 0,
@@ -321,15 +267,7 @@
       "recent_peak": 11.069999694824219,
       "last_checked_price": 9.039999961853027,
       "last_checked_time": "2026-01-06T17:20:02Z",
-      "rolling_scores": [
-        0.5,
-        0.5,
-        0.5,
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
+      "rolling_scores": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
       "last_decay_date": "2026-01-06",
       "was_above_47": true,
       "last_pnl_pct": 31.239626294190487,
@@ -355,16 +293,12 @@
       "last_mt_prob_source": "model",
       "last_fx_to_ron": 3.155369997024536,
       "last_rule_score": 0.0,
-      "last_rule_flags": [
-        "RSI overbought"
-      ],
+      "last_rule_flags": ["RSI overbought"],
       "last_rule_scale": 12.0,
       "last_sell_thr_early": 0.47243244455785743,
       "last_sell_thr_strong": 0.5905405556973218,
       "rolling_sell_index": [
-        0.029166666666666664,
-        0.041666666666666664,
-        0.07169805757018291
+        0.029166666666666664, 0.041666666666666664, 0.07169805757018291
       ],
       "avg_sell_index": 0.047510463634505416,
       "weak_days": 0,
@@ -392,15 +326,7 @@
     "KEP": {
       "weak_streak": 0.0,
       "recent_peak": 18.260000228881836,
-      "rolling_scores": [
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
+      "rolling_scores": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
       "last_decay_date": "2026-01-06",
       "was_above_47": false,
       "last_alert_time": "2025-11-12T14:44:22Z",
@@ -433,11 +359,7 @@
       "last_rule_scale": 12.0,
       "last_sell_thr_early": 0.5524324445578574,
       "last_sell_thr_strong": 0.6905405556973219,
-      "rolling_sell_index": [
-        0.0875,
-        0.07142857142857142,
-        0.0
-      ],
+      "rolling_sell_index": [0.0875, 0.07142857142857142, 0.0],
       "avg_sell_index": 0.052976190476190475,
       "weak_days": 0,
       "weak_thr": 0.4567329492502491,
@@ -464,15 +386,7 @@
     "JFU": {
       "weak_streak": 16.0,
       "recent_peak": 8.0,
-      "rolling_scores": [
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.5
-      ],
+      "rolling_scores": [1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
       "last_decay_date": "2026-01-06",
       "was_above_47": false,
       "last_checked_time": "2026-01-06T17:20:03Z",
@@ -500,16 +414,12 @@
       "last_mt_prob_source": "model",
       "last_fx_to_ron": 4.350039958953857,
       "last_rule_score": 0.0,
-      "last_rule_flags": [
-        "MACD bearish"
-      ],
+      "last_rule_flags": ["MACD bearish"],
       "last_rule_scale": 12.0,
       "last_sell_thr_early": 0.5524324445578574,
       "last_sell_thr_strong": 0.6905405556973219,
       "rolling_sell_index": [
-        0.420233717812576,
-        0.9222107049442918,
-        0.6830127033842324
+        0.420233717812576, 0.9222107049442918, 0.6830127033842324
       ],
       "avg_sell_index": 0.6751523753803667,
       "weak_days": 2,
@@ -537,15 +447,7 @@
     "GOOGL": {
       "weak_streak": 0.0,
       "recent_peak": 320.31500244140625,
-      "rolling_scores": [
-        1.5,
-        1.5,
-        3.5,
-        3.5,
-        1.5,
-        1.5,
-        1.5
-      ],
+      "rolling_scores": [1.5, 1.5, 3.5, 3.5, 1.5, 1.5, 1.5],
       "last_decay_date": "2026-01-02",
       "was_above_47": false,
       "last_checked_time": "2026-01-02T18:22:18Z",
@@ -560,9 +462,7 @@
       "last_w_mt": 0.3,
       "last_contrib_rule": 0.12083333333333335,
       "last_contrib_ml": 0.0,
-      "last_rule_flags": [
-        "MACD bearish"
-      ],
+      "last_rule_flags": ["MACD bearish"],
       "last_mt_prob": 0.27852917710640773,
       "last_mt_prob_thr": 0.75,
       "last_mt_gate": 0.0,
@@ -577,15 +477,7 @@
     "GPCR": {
       "weak_streak": 0.0,
       "recent_peak": 68.12000274658203,
-      "rolling_scores": [
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.5
-      ],
+      "rolling_scores": [1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
       "last_decay_date": "2026-01-06",
       "was_above_47": false,
       "last_checked_time": "2026-01-06T17:20:03Z",
@@ -597,19 +489,14 @@
       "last_sell_thr_strong": 0.6905405556973219,
       "last_rule_scale": 12.0,
       "last_contrib_ml": 0.510243130953181,
-      "last_rule_flags": [
-        "MACD bearish"
-      ],
+      "last_rule_flags": ["MACD bearish"],
       "last_mt_prob": 0.9101891523593968,
       "last_mt_sell_signal": true,
       "last_mt_pred_sellscore": 0.23595418645329228,
       "last_mt_sell_threshold": 0.31561970114707955,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "model",
-      "rolling_sell_index": [
-        0.5375880917302582,
-        0.6365973627764518
-      ],
+      "rolling_sell_index": [0.5375880917302582, 0.6365973627764518],
       "avg_sell_index": 0.587092727253355,
       "weak_days": 0,
       "weak_thr": 0.4567329492502491,
