@@ -4,6 +4,7 @@ import json
 import base64
 import subprocess
 import sys
+import math
 from threading import Thread
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
@@ -18,7 +19,7 @@ from keep_alive import keep_alive
 # ---------------------------
 # Version banner (helps confirm the running code)
 # ---------------------------
-BOT_VERSION = "2025-12-31 dynamic-thr-v1"
+BOT_VERSION = "2026-01-06 decision-engine-v9_1-ui"
 
 # ✅ Auto-install required packages if missing
 required = ["discord.py", "requests", "yfinance"]
@@ -267,17 +268,19 @@ def get_recent_price(ticker: str, fallback: float) -> float:
 
 
 # ---------------------------
-# Dynamic sell thresholds (mirrors decision_engine_dynamic_sell_thresholds_bull_easiest.py)
+# Decision-engine-aligned thresholds (fallback only; prefer tracker fields when present)
 # ---------------------------
-BASE_EARLY_BY_MT = {-1: 0.64, 0: 0.63, 1: 0.61}
-BASE_STRONG_BY_MT = {-1: 0.74, 0: 0.73, 1: 0.71}
+# These mirror decision_engine_v9_1 defaults. If you override regime params in the engine,
+# the tracker values (last_sell_thr_early/strong) will still be used first.
+_BASE_THR_BY_MT = {-1: 0.64, 0: 0.63, 1: 0.61}
+_STRONG_SELL_MULT = 1.25
 
 # Profit-based easing (lower threshold => easier to trigger sell)
-PROFIT_ADJ = [
-    (50.0, -0.10),
-    (30.0, -0.07),
-    (10.0, -0.04),
-    (0.0, -0.02),
+# V9_1 change: slightly reduced easing; removed the +0% tier.
+_PROFIT_ADJ = [
+    (50.0, -0.08),
+    (30.0, -0.06),
+    (10.0, -0.03),
 ]
 
 
@@ -286,21 +289,33 @@ def _clamp(v: float, lo: float, hi: float) -> float:
 
 
 def get_sell_thresholds(pnl_pct: Optional[float], mt: int) -> Tuple[float, float]:
+    """
+    Fallback thresholds for UI, aligned to decision_engine_v9_1:
+      - Profit adjustment applies to EARLY threshold only.
+      - STRONG threshold = max(early*1.25, early+0.05), clamped.
+    """
     mt = int(mt) if mt in (-1, 0, 1) else 0
-    early = float(BASE_EARLY_BY_MT.get(mt, 0.63))
-    strong = float(BASE_STRONG_BY_MT.get(mt, 0.73))
+    early = float(_BASE_THR_BY_MT.get(mt, 0.63))
 
-    p = float(pnl_pct) if pnl_pct is not None else None
+    p = None
+    try:
+        if pnl_pct is not None and math.isfinite(float(pnl_pct)):
+            p = float(pnl_pct)
+    except Exception:
+        p = None
+
     if p is not None:
-        for cutoff, adj in PROFIT_ADJ:
+        for cutoff, adj in _PROFIT_ADJ:
             if p >= float(cutoff):
                 early += float(adj)
-                strong += float(adj)
                 break
 
-    early = _clamp(early, 0.45, 0.70)
-    strong = _clamp(strong, max(early + 0.05, 0.55), 0.85)
-    return early, strong
+    early = _clamp(early, 0.45, 0.90)
+
+    strong = max(float(early) * float(_STRONG_SELL_MULT), float(early) + 0.05)
+    strong = _clamp(strong, 0.50, 0.90)
+
+    return float(early), float(strong)
 
 
 def risk_label_from_sell_index(sell_index: Optional[float], early_thr: float) -> str:
@@ -572,13 +587,28 @@ async def list(ctx):
         total_unrealized_pnl += pnl_lei
         pnl_pct = (pnl_lei / invested_lei) * 100.0 if invested_lei > 0 else None
 
-        weak_streak = float(state.get("weak_streak", 0.0))
+        # NEW (decision-engine aligned): show weak-days and avg sell-index when available.
+        weak_days = None
+        for k in ("weak_days", "last_weak_days", "weak_streak"):
+            if state.get(k) is not None:
+                try:
+                    weak_days = float(state.get(k))
+                    break
+                except Exception:
+                    pass
+        if weak_days is None:
+            weak_days = 0.0
 
-        score = state.get("last_score", None)
-        if score is None:
-            rolling = state.get("rolling_scores", []) or []
-            score = (sum(rolling) / len(rolling)) if rolling else 0.0
-        score = float(score)
+        weak_req = None
+        for k in ("weak_req", "last_weak_req", "WeakReq"):
+            if state.get(k) is not None:
+                try:
+                    weak_req = int(state.get(k))
+                    break
+                except Exception:
+                    pass
+        if weak_req is None:
+            weak_req = 3  # UI default; engine should ideally provide this
 
         sell_index_raw = state.get("last_sell_index", None)
         sell_index = None
@@ -588,6 +618,26 @@ async def list(ctx):
             except Exception:
                 sell_index = None
 
+        # Avg sell-index (rolling awareness). If missing, fall back to last sell-index.
+        avg_sell_index = None
+        for k in ("avg_sell_index", "last_avg_sell_index", "avgSellIndex"):
+            if state.get(k) is not None:
+                try:
+                    avg_sell_index = float(state.get(k))
+                    break
+                except Exception:
+                    pass
+        if avg_sell_index is None:
+            rolling = state.get("rolling_sell_index", []) or []
+            if isinstance(rolling, list) and rolling:
+                try:
+                    vals = [float(x) for x in rolling if x is not None]
+                    avg_sell_index = (sum(vals) / len(vals)) if vals else None
+                except Exception:
+                    avg_sell_index = None
+        if avg_sell_index is None:
+            avg_sell_index = sell_index if sell_index is not None else 0.0
+
         mt_regime = state.get("last_mt", state.get("last_mt_regime", 0))
         try:
             mt_regime_int = int(mt_regime)
@@ -596,8 +646,26 @@ async def list(ctx):
         if mt_regime_int not in (-1, 0, 1):
             mt_regime_int = 0
 
-        early_thr, strong_thr = get_sell_thresholds(pnl_pct, mt_regime_int)
-        risk_emoji = risk_label_from_sell_index(sell_index, early_thr)
+        # Prefer decision engine computed thresholds (if present in tracker).
+        early_thr = None
+        strong_thr = None
+        if state.get("last_sell_thr_early") is not None:
+            try:
+                early_thr = float(state.get("last_sell_thr_early"))
+            except Exception:
+                early_thr = None
+        if state.get("last_sell_thr_strong") is not None:
+            try:
+                strong_thr = float(state.get("last_sell_thr_strong"))
+            except Exception:
+                strong_thr = None
+
+        if early_thr is None or strong_thr is None:
+            early_thr_f, strong_thr_f = get_sell_thresholds(pnl_pct, mt_regime_int)
+            early_thr = early_thr if early_thr is not None else early_thr_f
+            strong_thr = strong_thr if strong_thr is not None else strong_thr_f
+
+        risk_emoji = risk_label_from_sell_index(sell_index, float(early_thr))
 
         mt_prob = state.get("last_mt_prob", None)
         mt_thr = state.get("last_mt_prob_thr", None)
@@ -609,8 +677,9 @@ async def list(ctx):
 
         stock_list.append({
             "ticker": t,
-            "weak": weak_streak,
-            "score": score,
+            "weak_days": weak_days,
+            "weak_req": weak_req,
+            "avg_sell_index": float(avg_sell_index),
             "emoji": risk_emoji,
             "pnl_lei": pnl_lei,
             "pnl_pct": pnl_pct,
@@ -618,8 +687,8 @@ async def list(ctx):
             "fx": float(fx_to_ron),
             "sell_index": sell_index,
             "sell_index_sort": sell_index if sell_index is not None else -1.0,
-            "early_thr": early_thr,
-            "strong_thr": strong_thr,
+            "early_thr": float(early_thr),
+            "strong_thr": float(strong_thr),
             "mt_regime": mt_regime_int,
             "mt_prob": mt_prob,
             "mt_thr": mt_thr,
@@ -639,18 +708,18 @@ async def list(ctx):
 
         lines = [
             f"**{s['ticker']}** — {s['emoji']}",
-            f"    Weak {s['weak']:.1f}/3 | Score {s['score']:.1f}{pct_txt}",
+            f"    WeakDays {float(s['weak_days']):.1f}/{int(s['weak_req'])} | AvgSellIndex {float(s['avg_sell_index']):.2f}{pct_txt}",
             f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} RON ({s['ccy']}→RON fx={s['fx']:.4f})",
             "",
         ]
 
         if s["sell_index"] is not None:
             lines.append(
-                f"    🧠 Sell Index: {float(s['sell_index']):.2f}/ {s['early_thr']:.2f} (strong {s['strong_thr']:.2f})"
+                f"    🧠 SellIndex: {float(s['sell_index']):.2f} / {s['early_thr']:.2f} (strong {s['strong_thr']:.2f}) | MT {int(s['mt_regime']):+d}"
             )
             lines.append("")
         else:
-            lines.append(f"    🧠 Sell Index: n/a / {s['early_thr']:.2f} (strong {s['strong_thr']:.2f})")
+            lines.append(f"    🧠 SellIndex: n/a / {s['early_thr']:.2f} (strong {s['strong_thr']:.2f}) | MT {int(s['mt_regime']):+d}")
             lines.append("")
 
         if s["mt_prob"] is not None:
@@ -660,8 +729,7 @@ async def list(ctx):
             model_txt = s["mt_model"] or "?"
             src_txt = s["mt_src"] or "?"
             lines.append(
-                f"    🤖 MT {int(s['mt_regime']):+d} | {sell_txt} | P {float(s['mt_prob']):.2f} (thr {thr_txt}) | "
-                f"Gate {gate_txt} | {model_txt} | src={src_txt}"
+                f"    🤖 MT-brain | {sell_txt} | P {float(s['mt_prob']):.2f} (thr {thr_txt}) | Gate {gate_txt} | {model_txt} | src={src_txt}"
             )
             lines.append("")
 

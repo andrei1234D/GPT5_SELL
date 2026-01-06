@@ -37,10 +37,11 @@ _BASE_THR_BY_MT = {
 # Profit-tier adjustments (applied to both early/strong).
 # Negative => lower threshold => easier to sell.
 _PROFIT_ADJ = [
-    (50.0, -0.10),  # >= 50% upside: weakest required compounded sell signal
-    (30.0, -0.07),
-    (10.0, -0.04),
-    ( 0.0, -0.02),
+    # Profit-tier adjustment applied to the EARLY threshold.
+    # Slightly reduced aggressiveness vs prior versions to avoid over-eager winner sells.
+    (50.0, -0.08),
+    (30.0, -0.06),
+    (10.0, -0.03),
 ]
 
 
@@ -54,28 +55,35 @@ def get_sell_thresholds(pnl_pct: Optional[float], mt: int) -> Tuple[float, float
       - MarketTrend regime (-1/0/+1)
       - Current upside (pnl_pct)
 
-    Design intent:
-      - pnl >= 50% => easiest selling thresholds (weakest required compounded sell signal)
-      - bull markets require slightly higher thresholds unless upside is large
+    Notes:
+      - Profit-tier adjustments are applied to the EARLY threshold only.
+      - STRONG threshold is derived as (early_thr * STRONG_SELL_MULT) and is used
+        to bypass the weak-day gate for "catastrophic" scenarios (very strong signal).
     """
-    base_early, base_strong = _BASE_THR_BY_MT.get(mt, _BASE_THR_BY_MT[0])
+    base_early, _base_strong = _BASE_THR_BY_MT.get(mt, _BASE_THR_BY_MT[0])
 
     adj = 0.0
     if pnl_pct is not None:
-        p = float(pnl_pct)
-        for cut, a in _PROFIT_ADJ:
-            if p >= cut:
-                adj = a
-                break
+        try:
+            p = float(pnl_pct)
+        except Exception:
+            p = float("nan")
+        if math.isfinite(p):
+            for cut, a in _PROFIT_ADJ:
+                if p >= float(cut):
+                    adj = float(a)
+                    break
 
-    early = _clamp(base_early + adj, 0.45, 0.85)
-    strong = _clamp(base_strong + adj, 0.50, 0.95)
+    early = _clamp(float(base_early) + float(adj), 0.45, 0.90)
 
-    # ensure ordering and spacing
+    # Strong sell requires a materially stronger signal than the base threshold.
+    strong = _clamp(float(early) * float(STRONG_SELL_MULT), 0.50, 0.90)
     if strong < early + 0.05:
-        strong = _clamp(early + 0.05, 0.50, 0.95)
+        # Keep at least a small gap so "strong" is meaningfully stronger than "early".
+        strong = _clamp(early + 0.05, 0.50, 0.90)
 
     return float(early), float(strong)
+
 
 
 # Deterministic normalization scale by regime.
@@ -84,6 +92,29 @@ RULE_SCALE_BY_MT = {
     -1: 8.0,    # bear: deterministic counts more
      0: 10.0,   # neutral: baseline
      1: 12.0,   # bull: deterministic counts less (gives ML relatively more influence)
+}
+
+# Strong-sell bypass: if the instantaneous SellIndex exceeds EARLY threshold by this factor,
+# we bypass the weak-day gate and immediately SELL.
+STRONG_SELL_MULT = 1.25
+
+# Rolling SellIndex smoothing window (daily values)
+SELL_INDEX_ROLL_N = 5
+
+# Weak-day gate parameters (training-style), per MarketTrend regime.
+# - Bearish allows faster confirmation (1..3 in training search space)
+# - Neutral/Bullish require more confirmation (2..7 in training search space)
+WEAK_REQ_BY_MT = {
+    -1: 2,
+     0: 5,
+     1: 5,
+}
+
+# A day is considered "weak" if avg_sell_index >= weak_frac * sell_thr_early
+WEAK_FRAC_BY_MT = {
+    -1: 0.765,
+     0: 0.572,
+     1: 0.827,
 }
 
 
@@ -597,23 +628,75 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             mt_softened = True
 
         sell_thr_early, sell_thr_strong = get_sell_thresholds(pnl_pct, mt)
-        require_weak_for_strong = not (pnl_pct is not None and float(pnl_pct) >= 50.0)
 
+        # -----------------------------
+        # Training-style weak-day gate + SellIndex smoothing (production-persistent)
+        # -----------------------------
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+        # Rolling SellIndex (daily) -> avg_sell_index
+        roll = tstate.get("rolling_sell_index")
+        if not isinstance(roll, list):
+            roll = []
+        if tstate.get("last_sell_index_date") != today_str:
+            roll.append(float(sell_index))
+            roll = roll[-int(SELL_INDEX_ROLL_N):]
+            tstate["rolling_sell_index"] = roll
+            tstate["last_sell_index_date"] = today_str
+
+        if roll:
+            avg_sell_index = float(np.nanmean(np.array(roll, dtype=np.float32)))
+        else:
+            avg_sell_index = float(sell_index)
+
+        tstate["sell_index"] = float(sell_index)
+        tstate["avg_sell_index"] = float(avg_sell_index)
+
+        # Weak-day streak update (counted once per day)
+        weak_req = int(WEAK_REQ_BY_MT.get(mt, 3))
+        weak_frac = float(WEAK_FRAC_BY_MT.get(mt, 0.70))
+        weak_thr = float(weak_frac) * float(sell_thr_early)
+
+        if tstate.get("last_weak_eval_date") != today_str:
+            if math.isfinite(avg_sell_index) and float(avg_sell_index) >= float(weak_thr):
+                tstate["weak_days"] = int(tstate.get("weak_days", 0)) + 1
+            else:
+                tstate["weak_days"] = 0
+            tstate["last_weak_eval_date"] = today_str
+
+        weak_days = int(tstate.get("weak_days", 0))
+        tstate["weak_thr"] = float(weak_thr)
+        tstate["weak_days"] = weak_days
+
+        # Optional: very large winners can bypass the weak-day gate (profit tier intent preserved)
+        bypass_weak = False
+        try:
+            bypass_weak = (pnl_pct is not None and math.isfinite(float(pnl_pct)) and float(pnl_pct) >= 50.0)
+        except Exception:
+            bypass_weak = False
+
+        # Decision gate:
+        # 1) HARD STOP-LOSS overrides all
+        # 2) STRONG SELL bypasses weak-day gate
+        # 3) Otherwise require weak_days confirmation to avoid over-eager sells
         decision = False
         label = "HOLD"
         color_tag = "🟢"
+
+        strong_sell = math.isfinite(float(sell_index)) and float(sell_index) >= float(sell_thr_strong)
+
         if bool(rule_sell):
             decision = True
             label = "HARD STOP-LOSS SELL"
             color_tag = "🔴"
         else:
-            if sell_index >= sell_thr_strong and (weak_streak >= 1.0 or (not require_weak_for_strong)):
+            if strong_sell:
                 decision = True
-                label = "STRONG SELL"
+                label = f"STRONG SELL (x{STRONG_SELL_MULT:.2f})"
                 color_tag = "🔴"
-            elif sell_index >= sell_thr_early:
+            elif math.isfinite(float(avg_sell_index)) and float(avg_sell_index) >= float(sell_thr_early) and (weak_days >= weak_req or bypass_weak):
                 decision = True
-                label = "EARLY SELL"
+                label = "SELL"
                 color_tag = "🟠"
 
         delta = max(0.0, sell_thr_early - sell_index)
@@ -687,13 +770,21 @@ def run_decision_engine(test_mode=False, end_of_day=False):
                 f"📈 **[{ticker}] {label}**\n"
                 f"{pnl_context}\n"
                 f"💰 **PnL:** {pnl_pct:+.2f}% ({ccy}→RON fx={fx_to_ron:.4f})\n"
-                f"📊 **AvgScore:** {avg_score:.2f} | Weak: {weak_streak:.1f}/3\n"
-                f"🧠 **SellIndex:** {sell_index:.2f} (early {sell_thr_early:.2f} / strong {sell_thr_strong:.2f})\n"
-                f"🧩 Mix: Rule +{rule_contrib:.2f} | ML +{ml_contrib:.2f}\n"
-                f"{ml_line}\n"
-                f"🧾 Rule note: {rule_msg}\n"
-                f"🕒 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                f"📊 **AvgSellIndex:** {avg_sell_index:.2f} | WeakDays: {weak_days}/{weak_req} (weak_thr {weak_thr:.2f})\n"
+                f"🧾 **RuleAvgScore:** {avg_score:.2f} | RuleWeakStreak: {weak_streak:.1f}\n"
+                f"🧠 **SellIndex:** raw {sell_index:.2f} | avg {avg_sell_index:.2f} (early {sell_thr_early:.2f} / strong {sell_thr_strong:.2f})\n"
+                f"🧪 **Contrib:** rule={rule_contrib:.2f} | ml={ml_contrib:.2f}\n"
+                f"{ml_line}"
+                f"{rule_msg}"
             )
+
+            # Reset the training-style weak-day state after an actual SELL alert
+            # (prevents stale confirmation streak from leaking into the next position).
+            tstate["weak_days"] = 0
+            tstate["rolling_sell_index"] = []
+            tstate["last_sell_index_date"] = None
+            tstate["last_weak_eval_date"] = None
+
 
         tracker["tickers"][ticker] = info_state
 
@@ -705,7 +796,11 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             "SellIndex": float(sell_index),
             "SellThrEarly": float(sell_thr_early),
             "SellThrStrong": float(sell_thr_strong),
-            "AvgScore": float(avg_score),
+            "AvgScore": float(avg_sell_index),
+            "AvgRuleScore": float(avg_score),
+            "WeakDays": int(weak_days),
+            "WeakReq": int(weak_req),
+            "WeakThr": float(weak_thr),
             "RuleScale": float(rule_scale),
             "WeakStreak": float(weak_streak),
             "PnL_pct": float(pnl_pct),
