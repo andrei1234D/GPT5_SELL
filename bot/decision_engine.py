@@ -2,10 +2,9 @@ import argparse
 import json
 import os
 import subprocess
-import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -21,25 +20,57 @@ LIVE_RESULTS_CSV = "bot/live_results.csv"
 LLM_INPUT_CSV = "bot/LLM_data/input_llm/llm_input_latest.csv"
 LLM_PRED_CSV = "bot/LLM_data/input_llm/llm_predictions.csv"
 
-# Agent best params (V9) path (source-of-truth for tuned thresholds/caps).
-AGENT_BEST_PARAMS_JSON = "/best_params.json"
+# ---------------------------
+# V9 regime params (loaded from agent best_params.json when available)
+# ---------------------------
 
-# ---------------------------
-# Dynamic sell thresholds (SellIndex is 0..1)
-# ---------------------------
-# Fallback baselines by MarketTrend (MT) when Agent params are not available:
-_BASE_THR_BY_MT = {
-    -1: (0.64, 0.74),  # bear
-     0: (0.63, 0.73),  # neutral
-     1: (0.61, 0.71),  # bull
-}
-# Profit-tier adjustments (applied to EARLY threshold).
-# Negative => lower threshold => easier to sell.
+# Reduced profit easing (no +0% tier, and smaller magnitudes than earlier).
 _PROFIT_ADJ = [
     (50.0, -0.08),
-    (30.0, -0.06),
+    (30.0, -0.055),
     (10.0, -0.03),
 ]
+
+# Strong sell bypass multiplier (strong = 1.25 * early)
+STRONG_SELL_MULT = 1.25
+
+# Deterministic normalization scale by regime.
+# Bigger scale => deterministic contributes LESS to SellIndex.
+RULE_SCALE_BY_MT = {
+    -1: 8.0,   # bear: deterministic counts more
+     0: 10.0,  # neutral: baseline
+     1: 12.0,  # bull: deterministic counts less (gives ML relatively more influence)
+}
+
+# Fallback regime params (used if best_params.json missing)
+_FALLBACK_PARAMS = {
+    -1: {
+        "base_early": 0.6154248696067058,
+        "det_cap": 0.5939142383728888,
+        "ml_cap": 0.6994237853601922,
+        "ml_prob_thr": 0.7150544609388172,
+        "weak_frac": 0.7655782785928555,
+        "weak_req": 1,
+    },
+     0: {
+        "base_early": 0.608935633403437,
+        "det_cap": 0.4134072394701689,
+        "ml_cap": 0.7253594424175182,
+        "ml_prob_thr": 0.8311084111657097,
+        "weak_frac": 0.5724806156424604,
+        "weak_req": 5,
+    },
+     1: {
+        "base_early": 0.5524324445578574,
+        "det_cap": 0.8230224748887198,
+        "ml_cap": 0.7376868954204823,
+        "ml_prob_thr": 0.7126578649111824,
+        "weak_frac": 0.8267670621985246,
+        "weak_req": 5,
+    },
+}
+
+SELL_INDEX_ROLL_N = 7  # rolling window size for avg_sell_index
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -52,113 +83,118 @@ def _safe_float(x, default=None):
             return default
         if isinstance(x, str) and x.strip() == "":
             return default
-        return float(x)
+        v = float(x)
+        return v if np.isfinite(v) else default
     except Exception:
         return default
 
 
-# ---------------------------
-# Agent best-params loader
-# ---------------------------
-def load_agent_best_params(path: str = AGENT_BEST_PARAMS_JSON) -> Dict[int, Dict[str, Any]]:
-    """Load agent-tuned regime params from JSON. Returns dict keyed by regime int (-1/0/1)."""
-    try:
-        p = Path(path)
-        if not p.exists():
-            return {}
-        obj = json.loads(p.read_text(encoding="utf-8"))
-        if not isinstance(obj, dict):
-            return {}
-
-        out: Dict[int, Dict[str, Any]] = {}
-        for k in ("-1", "0", "1"):
-            v = obj.get(k)
-            if not isinstance(v, dict):
-                continue
-
-            def _f(name: str, default_val=None):
-                val = v.get(name, default_val)
-                try:
-                    return float(val)
-                except Exception:
-                    return default_val
-
-            def _i(name: str, default_val=None):
-                val = v.get(name, default_val)
-                try:
-                    return int(val)
-                except Exception:
-                    return default_val
-
-            out[int(k)] = {
-                "base_early": _f("base_early", None),
-                "det_cap": _f("det_cap", None),
-                "ml_cap": _f("ml_cap", None),
-                "ml_prob_thr": _f("ml_prob_thr", None),
-                "weak_frac": _f("weak_frac", None),
-                "weak_req": _i("weak_req", None),
-            }
-
-        return out
-    except Exception as e:
-        print(f"⚠️ Failed to load Agent best params from {path}: {e}")
-        return {}
+def _today_utc() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d")
 
 
-def get_sell_thresholds(
-    pnl_pct: Optional[float],
-    mt: int,
-    *,
-    base_early_override: Optional[float] = None,
-) -> Tuple[float, float]:
-    """Returns (early_thr, strong_thr) for SellIndex."""
-    if base_early_override is not None and math.isfinite(float(base_early_override)):
-        base_early = float(base_early_override)
-    else:
-        base_early, _base_strong = _BASE_THR_BY_MT.get(mt, _BASE_THR_BY_MT[0])
+def _load_agent_best_params() -> dict:
+    """Load agent best_params.json (v9) from common repo locations.
 
-    adj = 0.0
-    if pnl_pct is not None:
+    Returns a dict keyed by int MT (-1/0/1) with required keys:
+      base_early, det_cap, ml_cap, ml_prob_thr, weak_frac, weak_req
+    """
+    script_dir = Path(__file__).resolve().parent
+
+    # Optional override (useful in CI). If set but invalid/missing, we fall back to the standard search.
+    env_path = (os.getenv("AGENT_BEST_PARAMS_PATH") or os.getenv("BEST_PARAMS_PATH") or "").strip()
+    env_candidate = Path(env_path) if env_path else None
+
+    candidates = [
+        env_candidate,                                     # explicit override (may be absolute)
+        script_dir / "best_params.json",                    # bot/best_params.json (your repo layout)
+        script_dir.parent / "best_params.json",            # repo root/best_params.json
+        Path.cwd() / "best_params.json",
+        Path.cwd() / "bot" / "best_params.json",
+    ]
+
+    src = None
+    raw = None
+    tried: list[str] = []
+    for p in candidates:
+        if p is None:
+            continue
+        tried.append(str(p))
         try:
-            p = float(pnl_pct)
+            if p.exists():
+                raw = json.loads(p.read_text(encoding="utf-8"))
+                src = str(p)
+                break
         except Exception:
-            p = float("nan")
-        if math.isfinite(p):
-            for cut, a in _PROFIT_ADJ:
-                if p >= float(cut):
-                    adj = float(a)
-                    break
+            raw = None
 
-    early = _clamp(float(base_early) + float(adj), 0.45, 0.90)
+    if not isinstance(raw, dict):
+        if env_candidate is not None:
+            print(f"⚠️ Agent best_params not found/invalid at override path: {env_candidate}")
+        print("⚠️ Agent best_params not found/invalid in expected locations. Using built-in fallback params.")
+        if tried:
+            print("    Searched:")
+            for t in tried[:10]:
+                print(f"      - {t}")
+        return {k: dict(v) for k, v in _FALLBACK_PARAMS.items()}
 
-    strong = _clamp(float(early) * float(STRONG_SELL_MULT), 0.50, 0.90)
-    if strong < early + 0.05:
-        strong = _clamp(early + 0.05, 0.50, 0.90)
+    out = {}
+    for mt_key in ("-1", "0", "1"):
+        v = raw.get(mt_key)
+        if not isinstance(v, dict):
+            continue
+        try:
+            mt = int(mt_key)
+        except Exception:
+            continue
+        if mt not in (-1, 0, 1):
+            continue
+        try:
+            out[mt] = {
+                "base_early": float(v["base_early"]),
+                "det_cap": float(v["det_cap"]),
+                "ml_cap": float(v["ml_cap"]),
+                "ml_prob_thr": float(v["ml_prob_thr"]),
+                "weak_frac": float(v["weak_frac"]),
+                "weak_req": int(v["weak_req"]),
+            }
+        except Exception:
+            continue
 
-    return float(early), float(strong)
+    if len(out) != 3:
+        print(f"⚠️ Agent best_params partially invalid (src={src}). Using built-in fallback params.")
+        return {k: dict(v) for k, v in _FALLBACK_PARAMS.items()}
+
+    print(f"✅ Loaded agent best_params.json from: {src}")
+    return out
 
 
-# Deterministic normalization scale by regime.
-# Bigger scale => deterministic contributes LESS to SellIndex.
-RULE_SCALE_BY_MT = {
-    -1: 8.0,
-     0: 10.0,
-     1: 12.0,
-}
+def compute_sell_threshold(base_early: float, pnl_pct: Optional[float]) -> float:
+    """Apply reduced profit-tier adjustments to the EARLY threshold."""
+    adj = 0.0
+    if pnl_pct is not None and np.isfinite(float(pnl_pct)):
+        p = float(pnl_pct)
+        for cut, a in _PROFIT_ADJ:
+            if p >= cut:
+                adj = a
+                break
 
-STRONG_SELL_MULT = 1.25
-SELL_INDEX_ROLL_N = 5
+    return float(_clamp(float(base_early) + float(adj), 0.45, 0.90))
 
-# Fallback weak-day gate params (used only if Agent params missing)
-WEAK_REQ_BY_MT = {-1: 2, 0: 5, 1: 5}
-WEAK_FRAC_BY_MT = {-1: 0.765, 0: 0.572, 1: 0.827}
+
+def compute_strong_threshold(early_thr: float) -> float:
+    strong = float(early_thr) * float(STRONG_SELL_MULT)
+    # Ensure a minimal spacing above early and clamp.
+    strong = max(strong, float(early_thr) + 0.05)
+    return float(_clamp(strong, 0.50, 0.95))
 
 
 # ---------------------------
-# FX helpers (multi-currency, cached)
+# FX helpers (multi-currency; cached)
 # ---------------------------
-_FX_CACHE = {}
+_FX_CACHE = {}  # currency -> (rate, ts_utc)
 _TICKER_CCY_CACHE = {}
+
 
 def _fx_pair_to_ron(currency: str):
     c = (currency or "").upper().strip()
@@ -178,53 +214,61 @@ def _fx_pair_to_ron(currency: str):
 
 
 def get_ticker_currency(ticker: str) -> str:
-    if ticker in _TICKER_CCY_CACHE:
-        return _TICKER_CCY_CACHE[ticker]
+    t = (ticker or "").upper().strip()
+    if t in _TICKER_CCY_CACHE:
+        return _TICKER_CCY_CACHE[t]
+
     ccy = "USD"
     try:
-        t = yf.Ticker(ticker)
-        fi = getattr(t, "fast_info", None) or {}
+        yt = yf.Ticker(t)
+        fi = getattr(yt, "fast_info", None) or {}
         ccy = fi.get("currency") or ccy
         if not ccy:
-            info = getattr(t, "info", {}) or {}
+            info = getattr(yt, "info", {}) or {}
             ccy = info.get("currency") or ccy
     except Exception:
         pass
+
     ccy = (ccy or "USD").upper().strip()
-    _TICKER_CCY_CACHE[ticker] = ccy
+    _TICKER_CCY_CACHE[t] = ccy
     return ccy
 
 
-def get_fx_to_ron(currency: str) -> float:
+def get_fx_to_ron(currency: str, *, ttl_minutes: int = 30) -> float:
     c = (currency or "").upper().strip()
     if c in ("RON", "LEI"):
         return 1.0
+
+    now = datetime.utcnow()
     if c in _FX_CACHE:
-        return _FX_CACHE[c]
+        rate, ts = _FX_CACHE[c]
+        if isinstance(ts, datetime) and (now - ts) <= timedelta(minutes=ttl_minutes) and float(rate) > 0:
+            return float(rate)
 
     pair = _fx_pair_to_ron(c)
     if pair is None:
-        _FX_CACHE[c] = 1.0
+        _FX_CACHE[c] = (1.0, now)
         return 1.0
 
     try:
         fx = yf.Ticker(pair).history(period="1d")
-        if not fx.empty and "Close" in fx.columns:
+        if fx is not None and (not fx.empty) and ("Close" in fx.columns):
             rate = float(fx["Close"].iloc[-1])
             if np.isfinite(rate) and rate > 0:
-                _FX_CACHE[c] = rate
-                return rate
+                _FX_CACHE[c] = (rate, now)
+                return float(rate)
     except Exception as e:
         print(f"⚠️ FX fetch failed for {c} ({pair}): {e}")
 
     fallback = 4.6 if c == "USD" else 1.0
-    _FX_CACHE[c] = fallback
-    return fallback
+    _FX_CACHE[c] = (fallback, now)
+    return float(fallback)
 
 
 # ---------------------------
 # Tracker helpers
 # ---------------------------
+
 def load_tracker():
     if os.path.exists(TRACKER_FILE):
         with open(TRACKER_FILE, "r", encoding="utf-8") as f:
@@ -234,10 +278,12 @@ def load_tracker():
                     data["tickers"] = {}
                 if "had_alerts" not in data:
                     data["had_alerts"] = False
+                if "date" not in data:
+                    data["date"] = _today_utc()
                 return data
             except json.JSONDecodeError:
                 pass
-    return {"date": datetime.utcnow().strftime("%Y-%m-%d"), "had_alerts": False, "tickers": {}}
+    return {"date": _today_utc(), "had_alerts": False, "tickers": {}}
 
 
 def save_tracker(data):
@@ -251,6 +297,7 @@ def save_tracker(data):
 # ---------------------------
 # Git commit (truthful)
 # ---------------------------
+
 def _run(cmd: list) -> int:
     try:
         r = subprocess.run(cmd, check=False, capture_output=True, text=True)
@@ -268,13 +315,7 @@ def git_commit_tracker():
     _run(["git", "config", "--global", "user.email", "bot@github.com"])
     _run(["git", "config", "--global", "user.name", "AutoBot"])
 
-    files_to_commit = [
-        TRACKER_FILE,
-        LIVE_RESULTS_CSV,
-        LLM_INPUT_CSV,
-        LLM_PRED_CSV,
-    ]
-
+    files_to_commit = [TRACKER_FILE, LIVE_RESULTS_CSV, LLM_INPUT_CSV, LLM_PRED_CSV]
     for file_path in files_to_commit:
         if os.path.exists(file_path):
             _run(["git", "add", file_path])
@@ -295,6 +336,7 @@ def git_commit_tracker():
 # ---------------------------
 # Deterministic scoring (points-based)
 # ---------------------------
+
 def check_sell_conditions(
     ticker: str,
     buy_price: float,
@@ -311,8 +353,12 @@ def check_sell_conditions(
     resistance=None,
     support=None,
     info=None,
-    debug=True,
+    debug: bool = True,
 ):
+    """Returns: (rule_sell, msg, current_price, avg_score, score, reasons)
+
+    Note: hard stop-loss triggers at -25% unless oversold or stabilizing.
+    """
     if info is None:
         info = {}
 
@@ -324,7 +370,7 @@ def check_sell_conditions(
 
     reasons = []
 
-    # Hard stop-loss
+    # Hard stop-loss (SELL) unless oversold exception or stabilizing momentum.
     if pnl_pct is not None and float(pnl_pct) <= -25:
         if rsi is not None and float(rsi) < 35:
             return False, f"Oversold RSI={float(rsi):.1f} → HOLD", current_price, 0.0, 0.0, ["HardStop: oversold_exception"]
@@ -410,7 +456,7 @@ def check_sell_conditions(
         except Exception:
             pass
 
-    # Rolling average
+    # Rolling average (deterministic score)
     rolling = info.get("rolling_scores", []) or []
     rolling.append(float(score))
     if len(rolling) > 7:
@@ -418,7 +464,7 @@ def check_sell_conditions(
     info["rolling_scores"] = rolling
     avg_score = (sum(rolling) / len(rolling)) if rolling else float(score)
 
-    # Weak streak (kept as-is)
+    # Weak streak decay (deterministic-only; retained for legacy diagnostics)
     info["recent_peak"] = max(float(info.get("recent_peak", current_price)), float(current_price))
 
     now_utc = datetime.utcnow()
@@ -454,7 +500,8 @@ def check_sell_conditions(
     info["weak_streak"] = max(0.0, round(float(info.get("weak_streak", 0.0)), 1))
 
     if debug:
-        print(f"⏳ {ticker}: Weak {info['weak_streak']:.1f}/3 — AvgScore={avg_score:.1f}")
+        # This is the legacy deterministic weak_streak (not the new WeakDays gating).
+        print(f"⏳ {ticker}: DetWeakStreak {info['weak_streak']:.1f} — DetAvgScore={avg_score:.1f}")
 
     return False, "Holding steady", current_price, float(avg_score), float(score), reasons
 
@@ -493,58 +540,13 @@ def _load_llm_input_map() -> dict:
         return {}
 
 
-def _ml_line(
-    *,
-    mt: int,
-    mt_prob,
-    mt_prob_thr_used,
-    mt_prob_thr_model,
-    mt_gate_used: float,
-    mt_gate_model: float,
-    mt_weight: float,
-    ml_contrib: float,
-    pred_sellscore,
-    sell_threshold,
-    model_type,
-    source: str = "unknown",
-) -> str:
-    if mt_prob is None:
-        return f"    ML: n/a | w {mt_weight:.2f} → +{ml_contrib:.2f}"
+def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
+    agent_params = _load_agent_best_params()
 
-    p = float(mt_prob)
-    thr_u = float(mt_prob_thr_used) if mt_prob_thr_used is not None else float("nan")
-    thr_m = float(mt_prob_thr_model) if mt_prob_thr_model is not None else float("nan")
-    sig = "SELL" if (mt_prob_thr_used is not None and p >= float(mt_prob_thr_used)) else "HOLD"
-
-    ps = f"{float(pred_sellscore):.3f}" if pred_sellscore is not None else "n/a"
-    st = f"{float(sell_threshold):.3f}" if sell_threshold is not None else "n/a"
-    mt_type = (model_type or "model").strip()
-
-    return (
-        f"    ML: {sig} | P {p:.3f} (thr_used {thr_u:.3f}, thr_model {thr_m:.3f}) | "
-        f"Gate used {float(mt_gate_used):.2f} vs model {float(mt_gate_model):.2f} | "
-        f"w {mt_weight:.2f} → +{ml_contrib:.2f} | pred {ps} vs sell_thr {st} | {mt_type} | src={source}"
-    )
-
-
-def run_decision_engine(test_mode=False, end_of_day=False):
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
     tracker = load_tracker()
 
-    # Load agent params once per run (source-of-truth).
-    agent_params = load_agent_best_params(AGENT_BEST_PARAMS_JSON)
-    if agent_params:
-        def _fmt(mt):
-            rp = agent_params.get(mt) or {}
-            return f"base_early={rp.get('base_early')} det_cap={rp.get('det_cap')} ml_cap={rp.get('ml_cap')} ml_prob_thr={rp.get('ml_prob_thr')} weak_frac={rp.get('weak_frac')} weak_req={rp.get('weak_req')}"
-        print(f"🧩 Agent best_params loaded from {AGENT_BEST_PARAMS_JSON}:")
-        print(f"    MT-1: {_fmt(-1)}")
-        print(f"    MT 0: {_fmt(0)}")
-        print(f"    MT+1: {_fmt(1)}")
-    else:
-        print(f"⚠️ Agent best_params not found/invalid at {AGENT_BEST_PARAMS_JSON}. Using engine defaults + model-provided thresholds.")
-
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    today_str = _today_utc()
     if tracker.get("date") != today_str:
         print(f"🧹 Resetting daily alert flag for {today_str}")
         tracker["date"] = today_str
@@ -587,14 +589,42 @@ def run_decision_engine(test_mode=False, end_of_day=False):
 
         current_price = float(indicators["current_price"])
         info_state = tracker["tickers"].get(ticker, {}) or {}
-        tstate = info_state  # alias: persistent per-ticker state
+
+        # If buy price changed materially (new position / averaging), reset rolling state.
+        last_buy = _safe_float(info_state.get("last_buy_price"), None)
+        if last_buy is not None and last_buy > 0:
+            if abs(float(last_buy) - float(avg_price)) / float(last_buy) > 0.02:
+                info_state["rolling_sell_index"] = []
+                info_state["weak_days"] = 0
+                info_state["last_roll_date"] = None
+                info_state["last_weak_update_date"] = None
 
         ccy = get_ticker_currency(ticker)
         fx_to_ron = get_fx_to_ron(ccy)
         pnl_lei = current_price * shares * fx_to_ron - invested_lei
         pnl_pct = (pnl_lei / invested_lei) * 100.0 if invested_lei else 0.0
 
-        rule_sell, rule_msg, _, avg_score, rule_score, rule_reasons = check_sell_conditions(
+        # MarketTrend (prefer ML input row; fallback to indicator string)
+        ml_row = llm_input_map.get(ticker, {}) or {}
+        mt = int(_safe_float(ml_row.get("MarketTrend"), 0) or 0)
+        if mt not in (-1, 0, 1):
+            mt = 0
+
+        # Reset WeakDays if MT regime changed (prevents cross-regime accumulation)
+        prev_mt = info_state.get("last_mt")
+        if prev_mt is not None:
+            try:
+                prev_mt = int(prev_mt)
+            except Exception:
+                prev_mt = None
+        if prev_mt is not None and prev_mt in (-1, 0, 1) and prev_mt != mt:
+            info_state["weak_days"] = 0
+            info_state["last_weak_update_date"] = None
+
+        rp = agent_params.get(mt, agent_params.get(0, _FALLBACK_PARAMS[0]))
+
+        # Deterministic rule scoring
+        rule_sell, rule_msg, _, det_avg_score, det_score, rule_reasons = check_sell_conditions(
             ticker,
             avg_price,
             current_price,
@@ -613,22 +643,11 @@ def run_decision_engine(test_mode=False, end_of_day=False):
             debug=True,
         )
 
-        weak_streak = float(info_state.get("weak_streak", 0.0))
+        rule_scale = float(RULE_SCALE_BY_MT.get(mt, 10.0))
+        rule_norm = min(1.0, float(det_avg_score) / rule_scale) if rule_scale > 0 else 0.0
+        det_contrib = min(float(rp["det_cap"]), float(rule_norm))
 
-        ml_row = llm_input_map.get(ticker, {}) or {}
-        mt = int(_safe_float(ml_row.get("MarketTrend"), 0) or 0)
-        if mt not in (-1, 0, 1):
-            mt = 0
-
-        rp = (agent_params.get(mt) or agent_params.get(0) or {}) if agent_params else {}
-
-        base_early_agent = rp.get("base_early")
-        det_cap_agent = rp.get("det_cap")
-        ml_cap_agent = rp.get("ml_cap")
-        ml_prob_thr_agent = rp.get("ml_prob_thr")
-        weak_frac_agent = rp.get("weak_frac")
-        weak_req_agent = rp.get("weak_req")
-
+        # ML probability
         mt_pred = None
         if sell_brain and ml_row:
             try:
@@ -644,268 +663,197 @@ def run_decision_engine(test_mode=False, end_of_day=False):
         mt_gate_model = 0.0 if not mt_pred else float(mt_pred.get("mt_gate") or 0.0)
         mt_weight = 0.0 if not mt_pred else float(mt_pred.get("mt_weight") or 0.0)
         pred_sellscore = None if not mt_pred else mt_pred.get("pred_sellscore")
-        sell_threshold = None if not mt_pred else mt_pred.get("sell_threshold")
-        mt_sell_signal_model = False if not mt_pred else bool(mt_pred.get("mt_sell_signal") or False)
+        sell_threshold_model = None if not mt_pred else mt_pred.get("sell_threshold")
+        mt_sell_signal = False if not mt_pred else bool(mt_pred.get("mt_sell_signal") or False)
         model_type = None if not mt_pred else mt_pred.get("model_type")
 
-        mt_prob_thr_used = None
-        if ml_prob_thr_agent is not None and math.isfinite(float(ml_prob_thr_agent)):
-            mt_prob_thr_used = float(ml_prob_thr_agent)
-        elif mt_prob_thr_model is not None:
-            try:
-                mt_prob_thr_used = float(mt_prob_thr_model)
-            except Exception:
-                mt_prob_thr_used = None
+        # V9: use agent-tuned ML probability threshold and cap (NOT model-provided mt_gate).
+        ml_prob_thr_used = float(rp["ml_prob_thr"])
+        ml_gate_used = 0.0
+        if mt_prob is not None and np.isfinite(float(mt_prob)) and float(mt_prob) >= ml_prob_thr_used:
+            ml_gate_used = float(mt_prob)
+        ml_contrib = min(float(rp["ml_cap"]), float(ml_gate_used))
 
-        mt_gate_used = 0.0
-        mt_sell_signal_used = False
-        if mt_prob is not None and mt_prob_thr_used is not None:
-            try:
-                p = float(mt_prob)
-                if math.isfinite(p) and p >= float(mt_prob_thr_used):
-                    mt_gate_used = p
-                    mt_sell_signal_used = True
-            except Exception:
-                mt_gate_used = 0.0
-                mt_sell_signal_used = False
+        sell_index_raw = float(_clamp(det_contrib + ml_contrib, 0.0, 1.0))
 
-        rule_scale = float(RULE_SCALE_BY_MT.get(mt, 10.0))
-        rule_norm = min(1.0, float(avg_score) / rule_scale) if rule_scale > 0 else 0.0
+        # Rolling avg sell index (update once per day)
+        roll = info_state.get("rolling_sell_index", []) or []
+        last_roll_date = info_state.get("last_roll_date")
+        if last_roll_date != today_str:
+            roll.append(float(sell_index_raw))
+            if len(roll) > int(SELL_INDEX_ROLL_N):
+                roll = roll[-int(SELL_INDEX_ROLL_N):]
+            info_state["rolling_sell_index"] = roll
+            info_state["last_roll_date"] = today_str
+        avg_sell_index = float(sum(roll) / len(roll)) if roll else float(sell_index_raw)
 
-        w_mt = max(0.0, min(0.85, float(mt_weight or 0.0)))
-        w_rule = max(0.0, 1.0 - w_mt)
+        # Thresholds
+        sell_thr_early = compute_sell_threshold(float(rp["base_early"]), pnl_pct)
+        sell_thr_strong = compute_strong_threshold(sell_thr_early)
 
-        w_sum = w_mt + w_rule
-        if w_sum <= 0:
-            w_mt, w_rule = 0.0, 1.0
-            w_sum = 1.0
-        w_mt /= w_sum
-        w_rule /= w_sum
-
-        det_signal = rule_norm
-        if det_cap_agent is not None and math.isfinite(float(det_cap_agent)):
-            det_signal = min(det_signal, float(det_cap_agent))
-
-        ml_signal = float(mt_gate_used or 0.0)
-        if ml_cap_agent is not None and math.isfinite(float(ml_cap_agent)):
-            ml_signal = min(ml_signal, float(ml_cap_agent))
-
-        rule_contrib = w_rule * float(det_signal)
-        ml_contrib = w_mt * float(ml_signal)
-        sell_index = _clamp(rule_contrib + ml_contrib, 0.0, 1.0)
-
-        mt_softened = False
-        if (
-            6.0 <= float(avg_score) < 7.0
-            and mt_prob is not None
-            and mt_prob_thr_used is not None
-            and float(mt_prob) < float(mt_prob_thr_used)
-        ):
-            sell_index = max(0.0, sell_index - 0.15)
-            mt_softened = True
-
-        sell_thr_early, sell_thr_strong = get_sell_thresholds(
-            pnl_pct,
-            mt,
-            base_early_override=(float(base_early_agent) if (base_early_agent is not None and math.isfinite(float(base_early_agent))) else None),
-        )
-
-        today_str = datetime.utcnow().strftime("%Y-%m-%d")
-
-        roll = tstate.get("rolling_sell_index")
-        if not isinstance(roll, list):
-            roll = []
-        if tstate.get("last_sell_index_date") != today_str:
-            roll.append(float(sell_index))
-            roll = roll[-int(SELL_INDEX_ROLL_N):]
-            tstate["rolling_sell_index"] = roll
-            tstate["last_sell_index_date"] = today_str
-
-        if roll:
-            avg_sell_index = float(np.nanmean(np.array(roll, dtype=np.float32)))
-        else:
-            avg_sell_index = float(sell_index)
-
-        tstate["sell_index"] = float(sell_index)
-        tstate["avg_sell_index"] = float(avg_sell_index)
-
-        weak_req = int(weak_req_agent) if isinstance(weak_req_agent, int) and weak_req_agent > 0 else int(WEAK_REQ_BY_MT.get(mt, 3))
-        weak_frac = float(weak_frac_agent) if (weak_frac_agent is not None and math.isfinite(float(weak_frac_agent))) else float(WEAK_FRAC_BY_MT.get(mt, 0.70))
+        # WeakDays gating based on avg_sell_index (update once per day)
+        weak_req = int(rp["weak_req"])
+        weak_frac = float(rp["weak_frac"])
         weak_thr = float(weak_frac) * float(sell_thr_early)
 
-        if tstate.get("last_weak_eval_date") != today_str:
-            if math.isfinite(avg_sell_index) and float(avg_sell_index) >= float(weak_thr):
-                tstate["weak_days"] = int(tstate.get("weak_days", 0)) + 1
+        weak_days = int(_safe_float(info_state.get("weak_days"), 0) or 0)
+        last_weak_update_date = info_state.get("last_weak_update_date")
+        if last_weak_update_date != today_str:
+            if float(avg_sell_index) >= float(weak_thr):
+                weak_days += 1
             else:
-                tstate["weak_days"] = 0
-            tstate["last_weak_eval_date"] = today_str
+                weak_days = 0
+            info_state["weak_days"] = int(weak_days)
+            info_state["last_weak_update_date"] = today_str
 
-        weak_days = int(tstate.get("weak_days", 0))
-        tstate["weak_thr"] = float(weak_thr)
-        tstate["weak_days"] = weak_days
-
-        bypass_weak = False
-        try:
-            bypass_weak = (pnl_pct is not None and math.isfinite(float(pnl_pct)) and float(pnl_pct) >= 50.0)
-        except Exception:
-            bypass_weak = False
+        # Profit bypass (winners can bypass weak gating)
+        bypass_weak = bool(pnl_pct is not None and np.isfinite(float(pnl_pct)) and float(pnl_pct) >= 50.0)
 
         decision = False
         label = "HOLD"
         color_tag = "🟢"
-
-        strong_sell = math.isfinite(float(sell_index)) and float(sell_index) >= float(sell_thr_strong)
 
         if bool(rule_sell):
             decision = True
             label = "HARD STOP-LOSS SELL"
             color_tag = "🔴"
         else:
-            if strong_sell:
+            if float(avg_sell_index) >= float(sell_thr_strong):
                 decision = True
-                label = f"STRONG SELL (x{STRONG_SELL_MULT:.2f})"
+                label = "STRONG SELL"
                 color_tag = "🔴"
-            elif math.isfinite(float(avg_sell_index)) and float(avg_sell_index) >= float(sell_thr_early) and (weak_days >= weak_req or bypass_weak):
+            elif float(avg_sell_index) >= float(sell_thr_early) and (weak_days >= weak_req or bypass_weak):
                 decision = True
                 label = "SELL"
                 color_tag = "🟠"
 
-        delta = max(0.0, sell_thr_early - sell_index)
         pnl_context = _context_tag(pnl_pct)
+        delta = max(0.0, float(sell_thr_early) - float(avg_sell_index))
 
         print(
             f"{color_tag} {ticker} | {label} | "
-            f"SellIndex {sell_index:.2f} / {sell_thr_early:.2f} SELL (Δ{delta:.2f}) | "
-            f"Weak {weak_streak:.1f}/3 | PnL {pnl_pct:+.2f}% | CCY {ccy} | MT {mt:+d}"
-        )
-
-        print(
-            f"    Mix: Rule +{rule_contrib:.2f} (AvgScore {avg_score:.1f}/{rule_scale:.0f}, w={w_rule:.2f}) | "
-            f"ML +{ml_contrib:.2f} (Gate {float(mt_gate_used):.2f}, w={w_mt:.2f})"
+            f"AvgSellIndex {avg_sell_index:.2f} (raw {sell_index_raw:.2f}) / {sell_thr_early:.2f} SELL (Δ{delta:.2f}) | "
+            f"WeakDays {weak_days}/{weak_req} (thr {weak_thr:.2f}) | PnL {pnl_pct:+.2f}% | CCY {ccy} | MT {mt:+d}"
         )
 
         flags_txt = "none" if not rule_reasons else "; ".join(rule_reasons[:6]) + (" ..." if len(rule_reasons) > 6 else "")
-        print(f"    RuleFlags: {flags_txt}")
-
-        ml_line = _ml_line(
-            mt=mt,
-            mt_prob=mt_prob,
-            mt_prob_thr_used=mt_prob_thr_used,
-            mt_prob_thr_model=mt_prob_thr_model,
-            mt_gate_used=mt_gate_used,
-            mt_gate_model=mt_gate_model,
-            mt_weight=w_mt,
-            ml_contrib=ml_contrib,
-            pred_sellscore=pred_sellscore,
-            sell_threshold=sell_threshold,
-            model_type=model_type,
-            source=("agent_best_params" if (ml_prob_thr_agent is not None) else "model_json"),
+        print(
+            f"    Mix: Det +{det_contrib:.2f} (DetAvgScore {det_avg_score:.1f}/{rule_scale:.0f}, cap {float(rp['det_cap']):.2f}) | "
+            f"ML +{ml_contrib:.2f} (P {float(mt_prob):.2f} thr_used {ml_prob_thr_used:.2f}, cap {float(rp['ml_cap']):.2f})"
+            if mt_prob is not None
+            else f"    Mix: Det +{det_contrib:.2f} (DetAvgScore {det_avg_score:.1f}/{rule_scale:.0f}, cap {float(rp['det_cap']):.2f}) | ML +0.00 (n/a)"
         )
-        print(ml_line)
-
-        if mt_softened:
-            print("    Note: ML softened borderline deterministic sell.")
+        print(f"    RuleFlags: {flags_txt}")
+        if mt_prob is not None:
+            thr_model_txt = f"{float(mt_prob_thr_model):.2f}" if mt_prob_thr_model is not None else "n/a"
+            print(
+                f"    ML: {'SELL' if mt_sell_signal else 'HOLD'} | P {float(mt_prob):.3f} (thr_model {thr_model_txt}) | "
+                f"GateUsed {ml_gate_used:.2f} | GateModel {mt_gate_model:.2f} | mt_weight {mt_weight:.2f} | "
+                f"pred {('%.3f' % float(pred_sellscore)) if pred_sellscore is not None else 'n/a'} vs sell_thr {('%.3f' % float(sell_threshold_model)) if sell_threshold_model is not None else 'n/a'} | "
+                f"{(model_type or 'model').strip()}"
+            )
 
         now_utc = datetime.utcnow()
+
+        # Persist diagnostic state for discord UI
         info_state["last_checked_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
         info_state["last_signal_label"] = label
-        info_state["last_score"] = float(avg_score)
-        info_state["last_sell_index"] = float(sell_index)
-        info_state["last_mt"] = int(mt)
-        info_state["last_currency"] = ccy
-        info_state["last_fx_to_ron"] = float(fx_to_ron)
+        info_state["last_buy_price"] = float(avg_price)
+
+        info_state["last_det_avg_score"] = float(det_avg_score)
+        info_state["last_det_score"] = float(det_score)
+        info_state["last_det_rule_scale"] = float(rule_scale)
+
+        info_state["last_sell_index_raw"] = float(sell_index_raw)
+        info_state["avg_sell_index"] = float(avg_sell_index)
 
         info_state["last_sell_thr_early"] = float(sell_thr_early)
         info_state["last_sell_thr_strong"] = float(sell_thr_strong)
 
-        info_state["last_rule_scale"] = float(rule_scale)
-        info_state["last_w_rule"] = float(w_rule)
-        info_state["last_w_mt"] = float(w_mt)
+        info_state["weak_days"] = int(weak_days)
+        info_state["weak_req"] = int(weak_req)
+        info_state["weak_frac"] = float(weak_frac)
+        info_state["weak_thr"] = float(weak_thr)
 
-        info_state["last_contrib_rule"] = float(rule_contrib)
+        info_state["det_cap"] = float(rp["det_cap"])
+        info_state["ml_cap"] = float(rp["ml_cap"])
+        info_state["ml_prob_thr_used"] = float(ml_prob_thr_used)
+
+        info_state["last_contrib_det"] = float(det_contrib)
         info_state["last_contrib_ml"] = float(ml_contrib)
 
         info_state["last_rule_flags"] = list(rule_reasons) if isinstance(rule_reasons, list) else []
 
+        info_state["last_mt"] = int(mt)
+        info_state["last_currency"] = ccy
+        info_state["last_fx_to_ron"] = float(fx_to_ron)
+
         info_state["last_mt_prob"] = None if mt_prob is None else float(mt_prob)
-        info_state["last_mt_prob_thr_used"] = None if mt_prob_thr_used is None else float(mt_prob_thr_used)
         info_state["last_mt_prob_thr_model"] = None if mt_prob_thr_model is None else float(mt_prob_thr_model)
-        info_state["last_mt_gate_used"] = float(mt_gate_used)
+        info_state["last_mt_gate_used"] = float(ml_gate_used)
         info_state["last_mt_gate_model"] = float(mt_gate_model)
-        info_state["last_mt_sell_signal_used"] = bool(mt_sell_signal_used)
-        info_state["last_mt_sell_signal_model"] = bool(mt_sell_signal_model)
-
+        info_state["last_mt_sell_signal"] = bool(mt_sell_signal)
+        info_state["last_mt_weight"] = float(mt_weight)
         info_state["last_mt_pred_sellscore"] = None if pred_sellscore is None else float(pred_sellscore)
-        info_state["last_mt_sell_threshold"] = None if sell_threshold is None else float(sell_threshold)
+        info_state["last_mt_sell_threshold"] = None if sell_threshold_model is None else float(sell_threshold_model)
         info_state["last_mt_model_type"] = model_type
-        info_state["last_mt_prob_source"] = "agent_best_params" if (ml_prob_thr_agent is not None) else ("model" if mt_prob is not None else None)
+        info_state["last_mt_prob_source"] = "model"
 
+        # Reset WeakDays after a decision to avoid repeated daily triggers.
         if decision:
             tracker["had_alerts"] = True
             info_state["last_alert_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+            info_state["weak_days"] = 0
+            info_state["last_weak_update_date"] = today_str
+
             sell_alerts.append(
                 f"📈 **[{ticker}] {label}**\n"
                 f"{pnl_context}\n"
                 f"💰 **PnL:** {pnl_pct:+.2f}% ({ccy}→RON fx={fx_to_ron:.4f})\n"
-                f"📊 **AvgSellIndex:** {avg_sell_index:.2f} | WeakDays: {weak_days}/{weak_req} (weak_thr {weak_thr:.2f})\n"
-                f"🧾 **RuleAvgScore:** {avg_score:.2f} | RuleWeakStreak: {weak_streak:.1f}\n"
-                f"🧠 **SellIndex:** raw {sell_index:.2f} | avg {avg_sell_index:.2f} (early {sell_thr_early:.2f} / strong {sell_thr_strong:.2f})\n"
-                f"🧪 **Contrib:** rule={rule_contrib:.2f} | ml={ml_contrib:.2f}\n"
-                f"{ml_line}"
-                f"{rule_msg}"
+                f"🧠 **AvgSellIndex:** {avg_sell_index:.2f} (raw {sell_index_raw:.2f})\n"
+                f"🎯 **Thr:** early {sell_thr_early:.2f} / strong {sell_thr_strong:.2f}\n"
+                f"⏳ **WeakDays:** {weak_days}/{weak_req} (weak_thr {weak_thr:.2f})\n"
+                f"🧩 Mix: Det +{det_contrib:.2f} | ML +{ml_contrib:.2f}\n"
+                f"🧾 Rule note: {rule_msg}\n"
+                f"🕒 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
             )
-
-            tstate["weak_days"] = 0
-            tstate["rolling_sell_index"] = []
-            tstate["last_sell_index_date"] = None
-            tstate["last_weak_eval_date"] = None
 
         tracker["tickers"][ticker] = info_state
 
-        live_rows.append({
-            "Timestamp": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "Ticker": ticker,
-            "decision": bool(decision),
-            "label": label,
-            "SellIndex": float(sell_index),
-            "SellThrEarly": float(sell_thr_early),
-            "SellThrStrong": float(sell_thr_strong),
-            "AvgSellIndex": float(avg_sell_index),
-            "AvgRuleScore": float(avg_score),
-            "WeakDays": int(weak_days),
-            "WeakReq": int(weak_req),
-            "WeakThr": float(weak_thr),
-            "RuleScale": float(rule_scale),
-            "WeakStreak": float(weak_streak),
-            "PnL_pct": float(pnl_pct),
-            "Currency": ccy,
-            "FX_to_RON": float(fx_to_ron),
-            "MarketTrend": int(mt),
-
-            "mt_prob": None if mt_prob is None else float(mt_prob),
-            "mt_prob_threshold": None if mt_prob_thr_used is None else float(mt_prob_thr_used),
-            "mt_prob_threshold_model": None if mt_prob_thr_model is None else float(mt_prob_thr_model),
-            "mt_gate": float(mt_gate_used),
-            "mt_gate_model": float(mt_gate_model),
-            "mt_sell_signal": bool(mt_sell_signal_used),
-            "mt_sell_signal_model": bool(mt_sell_signal_model),
-
-            "pred_sellscore": None if pred_sellscore is None else float(pred_sellscore),
-            "sell_threshold": None if sell_threshold is None else float(sell_threshold),
-            "model_type": model_type,
-
-            "w_rule": float(w_rule),
-            "w_mt": float(w_mt),
-            "rule_contrib": float(rule_contrib),
-            "ml_contrib": float(ml_contrib),
-
-            "agent_base_early": None if base_early_agent is None else float(base_early_agent),
-            "agent_det_cap": None if det_cap_agent is None else float(det_cap_agent),
-            "agent_ml_cap": None if ml_cap_agent is None else float(ml_cap_agent),
-            "agent_ml_prob_thr": None if ml_prob_thr_agent is None else float(ml_prob_thr_agent),
-            "agent_weak_frac": None if weak_frac_agent is None else float(weak_frac_agent),
-            "agent_weak_req": None if weak_req_agent is None else int(weak_req_agent),
-        })
+        live_rows.append(
+            {
+                "Timestamp": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "Ticker": ticker,
+                "decision": bool(decision),
+                "label": label,
+                "SellIndex_raw": float(sell_index_raw),
+                "AvgSellIndex": float(avg_sell_index),
+                "SellThrEarly": float(sell_thr_early),
+                "SellThrStrong": float(sell_thr_strong),
+                "WeakDays": int(weak_days),
+                "WeakReq": int(weak_req),
+                "WeakThr": float(weak_thr),
+                "PnL_pct": float(pnl_pct),
+                "Currency": ccy,
+                "FX_to_RON": float(fx_to_ron),
+                "MarketTrend": int(mt),
+                "DetAvgScore": float(det_avg_score),
+                "DetRuleScale": float(rule_scale),
+                "det_cap": float(rp["det_cap"]),
+                "ml_cap": float(rp["ml_cap"]),
+                "ml_prob_thr_used": float(ml_prob_thr_used),
+                "det_contrib": float(det_contrib),
+                "ml_contrib": float(ml_contrib),
+                "mt_prob": None if mt_prob is None else float(mt_prob),
+                "mt_prob_thr_model": None if mt_prob_thr_model is None else float(mt_prob_thr_model),
+                "mt_gate_used": float(ml_gate_used),
+                "mt_gate_model": float(mt_gate_model),
+                "mt_sell_signal": bool(mt_sell_signal),
+                "pred_sellscore": None if pred_sellscore is None else float(pred_sellscore),
+                "sell_threshold_model": None if sell_threshold_model is None else float(sell_threshold_model),
+                "model_type": model_type,
+            }
+        )
 
     tracker["had_alerts"] = bool(tracker.get("had_alerts") or (len(sell_alerts) > 0))
     save_tracker(tracker)
@@ -925,7 +873,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
     now_utc = datetime.utcnow()
     if sell_alerts:
         msg = "🚨 **SELL SIGNALS TRIGGERED** 🚨\n\n" + "\n\n".join(sell_alerts)
-        for chunk in [msg[i:i + 1900] for i in range(0, len(msg), 1900)]:
+        for chunk in [msg[i : i + 1900] for i in range(0, len(msg), 1900)]:
             try:
                 send_discord_alert(chunk)
             except Exception as e:
@@ -933,8 +881,7 @@ def run_decision_engine(test_mode=False, end_of_day=False):
     elif end_of_day and not test_mode:
         try:
             send_discord_alert(
-                "😎 All systems stable. No sell signals today.\n"
-                f"🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                "😎 All systems stable. No sell signals today.\n" f"🕐 Checked at {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
             )
         except Exception as e:
             print(f"⚠️ Discord send failed: {e}")
