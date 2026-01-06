@@ -43,14 +43,7 @@
       "shares": 55.87865519170996,
       "invested_lei": 1723.9,
       "fx_rate_buy": 4.345180034637451
-    },
-    "GPCR": {
-      "avg_price": 67.56,
-      "shares": 6.016025004782549,
-      "invested_lei": 1763.14,
-      "currency": "USD",
-      "fx_rate_buy": 4.337979793548584
     }
   },
-  "realized_pnl": 2886.0600556316112
+  "realized_pnl": 2808.1253469801245
 }
