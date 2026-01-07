@@ -44,9 +44,9 @@ LLM_PRED_CSV = "bot/LLM_data/input_llm/llm_predictions.csv"
 # ---------------------------
 
 _PROFIT_ADJ = [
-    (50.0, -0.08),
-    (30.0, -0.055),
-    (10.0, -0.03),
+    (50.0, -0.05),
+    (30.0, -0.03),
+    (10.0, -0.01),
 ]
 
 STRONG_SELL_MULT = 1.25
