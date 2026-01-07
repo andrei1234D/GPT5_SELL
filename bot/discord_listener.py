@@ -700,7 +700,7 @@ async def list(ctx):
 
             sell_txt = "SELL" if bool(s["mt_sell"]) else "HOLD"
             lines.append(
-                f"    🤖 MT | {sell_txt} | P {float(s['mt_prob']):.3f} | thr_used {thr_used_txt} | score {score_txt}"
+                f"    🤖 MT | {sell_txt} | P {float(s['mt_prob']):.3f} | thr_used {thr_used_txt}"
             )
             lines.append(f"    🔧 Gate {gate_used_txt}")
             lines.append("")
