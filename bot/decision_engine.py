@@ -718,16 +718,19 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
 
         sell_index_raw = float(_clamp(det_contrib + ml_contrib, 0.0, 1.0))
 
-        # Rolling avg sell index (once per market-day)
+        # Rolling avg sell index (every engine run / check)
         roll = info_state.get("rolling_sell_index", []) or []
-        last_roll_day = info_state.get("last_roll_day")
-        if last_roll_day != day_key:
-            roll.append(float(sell_index_raw))
-            if len(roll) > int(SELL_INDEX_ROLL_N):
-                roll = roll[-int(SELL_INDEX_ROLL_N):]
-            info_state["rolling_sell_index"] = roll
-            info_state["last_roll_day"] = day_key
+
+        roll.append(float(sell_index_raw))
+
+        # Keep only the last N samples (rolling window)
+        n = int(SELL_INDEX_ROLL_N)
+        if n > 0 and len(roll) > n:
+            roll = roll[-n:]
+
+        info_state["rolling_sell_index"] = roll
         avg_sell_index = float(sum(roll) / len(roll)) if roll else float(sell_index_raw)
+
 
         # Thresholds
         sell_thr_early = compute_sell_threshold(float(rp["base_early"]), pnl_pct)
