@@ -718,14 +718,15 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
 
         sell_index_raw = float(_clamp(det_contrib + ml_contrib, 0.0, 1.0))
 
-        # Rolling avg sell index (append EVERY run; window = last N runs)
+        # Rolling avg sell index (once per market-day)
         roll = info_state.get("rolling_sell_index", []) or []
-        roll.append(float(sell_index_raw))
-        if len(roll) > int(SELL_INDEX_ROLL_N):
-            roll = roll[-int(SELL_INDEX_ROLL_N):]
-        info_state["rolling_sell_index"] = roll
-        # Keep last_roll_day for visibility/backward-compat; not used for gating anymore.
-        info_state["last_roll_day"] = day_key
+        last_roll_day = info_state.get("last_roll_day")
+        if last_roll_day != day_key:
+            roll.append(float(sell_index_raw))
+            if len(roll) > int(SELL_INDEX_ROLL_N):
+                roll = roll[-int(SELL_INDEX_ROLL_N):]
+            info_state["rolling_sell_index"] = roll
+            info_state["last_roll_day"] = day_key
         avg_sell_index = float(sum(roll) / len(roll)) if roll else float(sell_index_raw)
 
         # Thresholds
@@ -867,6 +868,18 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
             info_state["weak_days"] = 0
             info_state["last_weak_update_day"] = day_key
 
+                        # Build alert message (concise; show only agent-used MT threshold + gate)
+            mt_line = ""
+            if mt_prob is not None and np.isfinite(float(mt_prob)):
+                mt_line = (
+                    f"🤖 MT: P {float(mt_prob):.3f} (thr_used {ml_prob_thr_used:.2f}) | Gate {ml_gate_used:.2f}\n"
+                )
+
+            rule_note = (rule_msg or "").strip()
+            rule_line = ""
+            if rule_note and rule_note.lower() not in ("holding steady", "holding steady."):
+                rule_line = f"🧾 Rule note: {rule_note}\n"
+
             sell_alerts.append(
                 f"📈 **[{ticker}] {label}**\n"
                 f"{pnl_context}\n"
@@ -875,11 +888,11 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
                 f"🎯 **Thr:** early {sell_thr_early:.2f} / strong {sell_thr_strong:.2f}\n"
                 f"⏳ **WeakDays:** {weak_days}/{weak_req} (weak_thr {weak_thr:.2f})\n"
                 f"🧩 Mix: Det +{det_contrib:.2f} | ML +{ml_contrib:.2f}\n"
-                f"🤖 MT: P {float(mt_prob):.3f} (thr_model {(float(mt_prob_thr_model) if mt_prob_thr_model is not None else 'n/a')}) | "
-                f"GateUsed {ml_gate_used:.2f} | GateModel {mt_gate_model:.2f} | src={prob_source or 'n/a'}\n"
-                f"🧾 Rule note: {rule_msg}\n"
-                f"🕒 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                + mt_line
+                + rule_line
+                + f"🕒 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
             )
+
 
         tracker.setdefault("tickers", {})[ticker] = info_state
 

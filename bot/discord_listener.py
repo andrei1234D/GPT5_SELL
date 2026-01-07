@@ -17,7 +17,7 @@ from keep_alive import keep_alive
 # ---------------------------
 # Version banner (helps confirm the running code)
 # ---------------------------
-BOT_VERSION = "2026-01-06 decision-engine-v9_1-ui"
+BOT_VERSION = "2026-01-07 decision-engine-v9_1-ui2"
 
 DATA_FILE = "bot/data.json"
 TRACKER_FILE = "bot/sell_alerts_tracker.json"
@@ -634,30 +634,13 @@ async def list(ctx):
 
         # ML diagnostics (engine keys)
         mt_prob = _safe_float(state.get("last_mt_prob"), None)
-        thr_model = _safe_float(state.get("last_mt_prob_thr_model"), None)
-        if thr_model is None:
-            thr_model = _safe_float(state.get("last_mt_prob_thr"), None)  # legacy
-
         thr_used = _safe_float(state.get("ml_prob_thr_used"), None)
-        gate_used = _safe_float(state.get("last_mt_gate_used"), None)
-        gate_model = _safe_float(state.get("last_mt_gate_model"), None)
+        gate_used = _safe_float(state.get("last_mt_gate_used"), None)  # normalized ramp gate
         mt_sell = state.get("last_mt_sell_signal", None)
-        model_txt = state.get("last_mt_model_type", None) or "?"
-        src_txt = state.get("last_mt_prob_source", None) or "?"
+        mt_score = _safe_float(state.get("last_mt_pred_sellscore"), None)
 
         det_contrib = _safe_float(state.get("last_contrib_det"), None)
         ml_contrib = _safe_float(state.get("last_contrib_ml"), None)
-
-        # Sanity-check: compute normalized gate from ramp definition, if possible
-        gate_calc = None
-        if mt_prob is not None and thr_used is not None:
-            p = float(_clamp(mt_prob, 0.0, 1.0))
-            thr = float(_clamp(thr_used, 0.0, 0.999999))
-            denom = (1.0 - thr)
-            if denom > 0 and p >= thr:
-                gate_calc = float(_clamp((p - thr) / denom, 0.0, 1.0))
-            elif p < thr:
-                gate_calc = 0.0
 
         last_alert = state.get("last_alert_time", None)
 
@@ -676,14 +659,10 @@ async def list(ctx):
             "strong_thr": float(strong_thr),
             "mt_regime": mt_regime_int,
             "mt_prob": mt_prob,
-            "thr_model": thr_model,
             "thr_used": thr_used,
             "gate_used": gate_used,
-            "gate_calc": gate_calc,
-            "gate_model": gate_model,
             "mt_sell": mt_sell,
-            "model": model_txt,
-            "src": src_txt,
+            "mt_score": mt_score,
             "det_contrib": det_contrib,
             "ml_contrib": ml_contrib,
             "last_alert": last_alert,
@@ -714,19 +693,16 @@ async def list(ctx):
             ml_txt = f"{float(s['ml_contrib']):.2f}" if s["ml_contrib"] is not None else "n/a"
             lines.append(f"    🧩 Mix: Det {det_txt} | ML {ml_txt}")
             lines.append("")
-
         if s["mt_prob"] is not None:
-            thr_model_txt = f"{float(s['thr_model']):.2f}" if s["thr_model"] is not None else "n/a"
-            thr_used_txt = f"{float(s['thr_used']):.2f}" if s["thr_used"] is not None else "n/a"
-
-            gate_used_txt = f"{float(s['gate_used']):.2f}" if s["gate_used"] is not None else "n/a"
+            thr_used_txt = f"{float(s['thr_used']):.2f}" if s['thr_used'] is not None else "n/a"
+            gate_used_txt = f"{float(s['gate_used']):.2f}" if s['gate_used'] is not None else "n/a"
+            score_txt = f"{float(s['mt_score']):.3f}" if s.get('mt_score') is not None else "n/a"
 
             sell_txt = "SELL" if bool(s["mt_sell"]) else "HOLD"
             lines.append(
-                f"    🤖 MT-brain | {sell_txt} | P {float(s['mt_prob']):.3f} "
-                f"(thr_model {thr_model_txt}, thr_used {thr_used_txt})"
+                f"    🤖 MT | {sell_txt} | P {float(s['mt_prob']):.3f} | thr_used {thr_used_txt} | score {score_txt}"
             )
-            lines.append(f"    🔧 gate_used {gate_used_txt}")
+            lines.append(f"    🔧 Gate {gate_used_txt}")
             lines.append("")
 
 
