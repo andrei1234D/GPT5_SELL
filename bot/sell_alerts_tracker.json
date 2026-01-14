@@ -3,10 +3,10 @@
   "had_alerts": true,
   "tickers": {
     "M": {
-      "weak_streak": 2.5,
+      "weak_streak": 2.0,
       "recent_peak": 23.850099563598633,
       "last_checked_price": 23.829999923706055,
-      "last_checked_time": "2026-01-14T09:51:54Z",
+      "last_checked_time": "2026-01-14T11:44:01Z",
       "rolling_scores": [
         2.5,
         2.5,
@@ -39,7 +39,7 @@
       "last_contrib_bias_pct": 43.7956204379562,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.368269920349121,
+      "last_fx_to_ron": 4.368859767913818,
       "last_rule_score": 3.5,
       "last_rule_flags": [
         "RSI weak",
@@ -95,7 +95,7 @@
       "recent_peak": 211.02499389648438,
       "last_alert_time": "2025-11-26T15:41:38Z",
       "last_checked_price": 180.99000549316406,
-      "last_checked_time": "2026-01-14T09:51:54Z",
+      "last_checked_time": "2026-01-14T11:44:01Z",
       "rolling_scores": [
         1.5,
         1.5,
@@ -128,7 +128,7 @@
       "last_contrib_bias_pct": 73.17073170731706,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.368269920349121,
+      "last_fx_to_ron": 4.368859767913818,
       "last_rule_score": 1.0,
       "last_rule_flags": [
         "MACD bearish"
@@ -137,15 +137,15 @@
       "last_sell_thr_early": 0.5524324445578574,
       "last_sell_thr_strong": 0.6905405556973219,
       "rolling_sell_index": [
-        0.18452380952380953,
         0.17261904761904764,
         0.1488095238095238,
         0.1369047619047619,
         0.125,
         0.125,
+        0.125,
         0.125
       ],
-      "avg_sell_index": 0.14540816326530612,
+      "avg_sell_index": 0.13690476190476192,
       "weak_days": 0,
       "weak_thr": 0.4567329492502491,
       "last_mt_prob_thr_used": 0.75,
@@ -182,7 +182,7 @@
       "weak_streak": 0.0,
       "recent_peak": 345.8699951171875,
       "last_checked_price": 265.9200134277344,
-      "last_checked_time": "2026-01-14T09:51:54Z",
+      "last_checked_time": "2026-01-14T11:44:01Z",
       "rolling_scores": [
         2.5,
         2.5,
@@ -216,7 +216,7 @@
       "last_contrib_bias_pct": 97.9260500153104,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.368269920349121,
+      "last_fx_to_ron": 4.368859767913818,
       "last_rule_score": 0.0,
       "last_rule_flags": [
         "Momentum collapse",
@@ -287,10 +287,10 @@
       "last_score": 3.0
     },
     "FSLR": {
-      "weak_streak": 213.5,
+      "weak_streak": 214.5,
       "recent_peak": 285.9849853515625,
       "last_checked_price": 266.9800109863281,
-      "last_checked_time": "2026-01-14T09:51:54Z",
+      "last_checked_time": "2026-01-14T11:44:01Z",
       "rolling_scores": [
         4.5,
         4.5,
@@ -324,7 +324,7 @@
       "last_contrib_bias_pct": 73.17073170731706,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.368269920349121,
+      "last_fx_to_ron": 4.368859767913818,
       "last_rule_score": 1.0,
       "last_rule_flags": [
         "RSI oversold",
@@ -381,7 +381,7 @@
       "weak_streak": 0.0,
       "recent_peak": 11.5,
       "last_checked_price": 9.039999961853027,
-      "last_checked_time": "2026-01-14T09:51:54Z",
+      "last_checked_time": "2026-01-14T11:44:01Z",
       "rolling_scores": [
         1.5,
         1.5,
@@ -414,7 +414,7 @@
       "last_contrib_bias_pct": 100.0,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 3.1443400382995605,
+      "last_fx_to_ron": 3.145930051803589,
       "last_rule_score": 0.0,
       "last_rule_flags": [
         "RSI overbought",
@@ -424,15 +424,15 @@
       "last_sell_thr_early": 0.47243244455785743,
       "last_sell_thr_strong": 0.5905405556973218,
       "rolling_sell_index": [
-        0.07738095238095238,
         0.08928571428571429,
         0.10119047619047618,
         0.1130952380952381,
         0.125,
         0.125,
+        0.125,
         0.125
       ],
-      "avg_sell_index": 0.10799319727891156,
+      "avg_sell_index": 0.11479591836734694,
       "weak_days": 0,
       "weak_thr": 0.39059158427436713,
       "last_mt_prob_thr_used": 0.75,
@@ -481,7 +481,7 @@
       "was_above_47": false,
       "last_alert_time": "2025-11-12T14:44:22Z",
       "last_checked_price": 16.90999984741211,
-      "last_checked_time": "2026-01-14T09:51:54Z",
+      "last_checked_time": "2026-01-14T11:44:01Z",
       "last_pnl_pct": 2.004819647355859,
       "last_rule_norm": 0.25,
       "last_mt_regime": 1,
@@ -503,7 +503,7 @@
       "last_contrib_bias_pct": 52.17391304347826,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.368269920349121,
+      "last_fx_to_ron": 4.368859767913818,
       "last_rule_score": 2.5,
       "last_rule_flags": [
         "RSI overbought"
@@ -567,7 +567,7 @@
       ],
       "last_decay_date": "2026-01-13",
       "was_above_47": false,
-      "last_checked_time": "2026-01-14T09:51:54Z",
+      "last_checked_time": "2026-01-14T11:44:01Z",
       "last_checked_price": 6.449999809265137,
       "last_pnl_pct": -9.325955213001018,
       "last_rule_norm": 0.0,
@@ -590,7 +590,7 @@
       "last_contrib_bias_pct": 42.332114692731295,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.368269920349121,
+      "last_fx_to_ron": 4.368859767913818,
       "last_rule_score": 0.0,
       "last_rule_flags": [
         "MACD bearish",
@@ -640,7 +640,7 @@
       "last_contrib_mt": 0.5869792024374474,
       "last_mt_prob_thr": 0.75,
       "last_mt_gate": 0.761959872859701,
-      "last_alert_time": "2026-01-14T09:51:54Z"
+      "last_alert_time": "2026-01-14T11:44:01Z"
     },
     "GOOGL": {
       "weak_streak": 0.0,
