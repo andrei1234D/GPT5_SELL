@@ -50,6 +50,13 @@
       "invested_lei": 1182.52,
       "currency": "USD",
       "fx_rate_buy": 4.379300117492676
+    },
+    "MBX": {
+      "avg_price": 41.6,
+      "shares": 9.609675682663289,
+      "invested_lei": 1750.68,
+      "currency": "USD",
+      "fx_rate_buy": 4.379300117492676
     }
   },
   "realized_pnl": 2808.1253469801245
