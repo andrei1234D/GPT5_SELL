@@ -43,6 +43,13 @@
       "shares": 55.87865519170996,
       "invested_lei": 1723.9,
       "fx_rate_buy": 4.345180034637451
+    },
+    "FOLD": {
+      "avg_price": 14.33,
+      "shares": 26.031459971689507,
+      "invested_lei": 1600.0,
+      "currency": "USD",
+      "fx_rate_buy": 4.28918981552124
     }
   },
   "realized_pnl": 2717.333664034164
