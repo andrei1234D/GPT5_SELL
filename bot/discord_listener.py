@@ -17,7 +17,7 @@ from keep_alive import keep_alive
 # ---------------------------
 # Version banner (helps confirm the running code)
 # ---------------------------
-BOT_VERSION = "2026-01-07 decision-engine-v9_1-ui2"
+BOT_VERSION = "2026-01-31 decision-engine-v9_1-ui3-weakreq-3-2"
 
 DATA_FILE = "bot/data.json"
 TRACKER_FILE = "bot/sell_alerts_tracker.json"
@@ -147,6 +147,22 @@ def _safe_int(x, default=None) -> Optional[int]:
 def _clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
+def profit_based_weak_req(pnl_pct: Optional[float], base_req: int) -> int:
+    """
+    Match decision_engine logic:
+      - PnL >= 50%  -> require 4 weak days
+      - PnL >= 100% -> require 3 weak days
+    Only lowers, never raises.
+    """
+    req = int(base_req)
+    p = _safe_float(pnl_pct, None)
+    if p is None:
+        return req
+    if p >= 100.0:
+        return min(req, 3)
+    if p >= 50.0:   
+        return min(req, 4)
+    return req
 
 # ---------------------------
 # FX helpers (multi-currency; live-first, fallback to last-known)
@@ -593,11 +609,19 @@ async def list(ctx):
 
         # Engine weak-days
         weak_days = _safe_int(state.get("weak_days"), 0) or 0
-        weak_req = _safe_int(state.get("weak_req"), None)
-        if weak_req is None:
-            weak_req = _safe_int(state.get("last_weak_req"), None)
-        if weak_req is None:
-            weak_req = 3
+
+        # Prefer engine-provided effective weak_req from tracker (source of truth)
+        weak_req_base = _safe_int(state.get("weak_req"), None)
+        if weak_req_base is None:
+            weak_req_base = _safe_int(state.get("last_weak_req"), None)
+
+        # If still missing (first run / old tracker), use a conservative default,
+        # then apply profit-based lowering to match engine policy.
+        if weak_req_base is None:
+            weak_req_base = 5
+
+        weak_req = profit_based_weak_req(pnl_pct, int(weak_req_base))
+
 
         # Regime
         mt_regime_int = _safe_int(state.get("last_mt"), 0) or 0

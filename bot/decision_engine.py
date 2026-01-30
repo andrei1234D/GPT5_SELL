@@ -737,9 +737,20 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         sell_thr_strong = compute_strong_threshold(sell_thr_early)
 
         # WeakDays (once per market-day)
-        weak_req = int(rp["weak_req"])
+        weak_req_base = int(rp["weak_req"])
         weak_frac = float(rp["weak_frac"])
         weak_thr = float(weak_frac) * float(sell_thr_early)
+
+        # Profit-based WeakDays requirement (only lowers, never raises)
+        # - PnL >= 50%  -> require 4 weak days
+        # - PnL >= 100% -> require 3 weak days
+        weak_req_eff = weak_req_base
+        if pnl_pct is not None and np.isfinite(float(pnl_pct)):
+            p = float(pnl_pct)
+            if p >= 100.0:
+                weak_req_eff = min(weak_req_eff, 3)
+            elif p >= 50.0:
+                weak_req_eff = min(weak_req_eff, 4)
 
         weak_days = int(_safe_float(info_state.get("weak_days"), 0) or 0)
         last_weak_update_day = info_state.get("last_weak_update_day")
@@ -751,8 +762,8 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
             info_state["weak_days"] = int(weak_days)
             info_state["last_weak_update_day"] = day_key
 
-        # Profit bypass
-        bypass_weak = bool(pnl_pct is not None and np.isfinite(float(pnl_pct)) and float(pnl_pct) >= 50.0)
+        # Profit bypass (DISABLED): always require WeakDays
+        bypass_weak = False
 
         decision = False
         label = "HOLD"
@@ -767,7 +778,8 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
                 decision = True
                 label = "STRONG SELL"
                 color_tag = "🔴"
-            elif float(avg_sell_index) >= float(sell_thr_early) and (weak_days >= weak_req or bypass_weak):
+            elif float(avg_sell_index) >= float(sell_thr_early) and (weak_days >= weak_req_eff or bypass_weak):
+
                 decision = True
                 label = "SELL"
                 color_tag = "🟠"
@@ -778,7 +790,8 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         print(
             f"{color_tag} {ticker} | {label} | "
             f"AvgSellIndex {avg_sell_index:.2f} (raw {sell_index_raw:.2f}) / {sell_thr_early:.2f} SELL (Δ{delta:.2f}) | "
-            f"WeakDays {weak_days}/{weak_req} (thr {weak_thr:.2f}) | PnL {pnl_pct:+.2f}% | CCY {ccy} | MT {mt:+d}"
+            f"WeakDays {weak_days}/{weak_req_eff} (thr {weak_thr:.2f}) | PnL {pnl_pct:+.2f}% | CCY {ccy} | MT {mt:+d}"
+
         )
 
         flags_txt = "none" if not rule_reasons else "; ".join(rule_reasons[:6]) + (" ..." if len(rule_reasons) > 6 else "")
@@ -829,7 +842,8 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         info_state["last_sell_thr_strong"] = float(sell_thr_strong)
 
         info_state["weak_days"] = int(weak_days)
-        info_state["weak_req"] = int(weak_req)
+        info_state["weak_req"] = int(weak_req_eff)
+
         info_state["weak_frac"] = float(weak_frac)
         info_state["weak_thr"] = float(weak_thr)
 
@@ -889,7 +903,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
                 f"💰 **PnL:** {pnl_pct:+.2f}% ({ccy}→RON fx={fx_to_ron:.4f})\n"
                 f"🧠 **AvgSellIndex:** {avg_sell_index:.2f} (raw {sell_index_raw:.2f})\n"
                 f"🎯 **Thr:** early {sell_thr_early:.2f} / strong {sell_thr_strong:.2f}\n"
-                f"⏳ **WeakDays:** {weak_days}/{weak_req} (weak_thr {weak_thr:.2f})\n"
+                f"⏳ **WeakDays:** {weak_days}/{weak_req_eff} (weak_thr {weak_thr:.2f})\n"
                 f"🧩 Mix: Det +{det_contrib:.2f} | ML +{ml_contrib:.2f}\n"
                 + mt_line
                 + rule_line
@@ -911,7 +925,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
                 "SellThrEarly": float(sell_thr_early),
                 "SellThrStrong": float(sell_thr_strong),
                 "WeakDays": int(weak_days),
-                "WeakReq": int(weak_req),
+                "WeakReq": int(weak_req_eff),
                 "WeakThr": float(weak_thr),
                 "PnL_pct": float(pnl_pct),
                 "Currency": ccy,
