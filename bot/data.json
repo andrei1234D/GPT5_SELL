@@ -38,6 +38,13 @@
       "invested_lei": 2600.0,
       "currency": "USD",
       "fx_rate_buy": 4.28918981552124
+    },
+    "ERO": {
+      "avg_price": 34.04,
+      "shares": 15.073524318790698,
+      "invested_lei": 2200.0,
+      "currency": "USD",
+      "fx_rate_buy": 4.28764009475708
     }
   },
   "realized_pnl": 1379.0954696239437
