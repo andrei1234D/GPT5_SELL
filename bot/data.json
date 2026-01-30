@@ -53,6 +53,13 @@
       "invested_lei": 2126.64,
       "currency": "USD",
       "fx_rate_buy": 4.28764009475708
+    },
+    "BTG": {
+      "avg_price": 4.9,
+      "shares": 0.0004752572461805961,
+      "invested_lei": 0.01,
+      "currency": "USD",
+      "fx_rate_buy": 4.294129848480225
     }
   },
   "realized_pnl": 1426.3793142340573
