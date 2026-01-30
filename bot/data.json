@@ -46,6 +46,13 @@
       "invested_lei": 2200.0,
       "currency": "USD",
       "fx_rate_buy": 4.28764009475708
+    },
+    "WRN": {
+      "avg_price": 3.3,
+      "shares": 150.30094630012894,
+      "invested_lei": 2126.64,
+      "currency": "USD",
+      "fx_rate_buy": 4.28764009475708
     }
   },
   "realized_pnl": 1426.3793142340573
