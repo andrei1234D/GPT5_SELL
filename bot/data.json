@@ -60,6 +60,13 @@
       "invested_lei": 0.01,
       "currency": "USD",
       "fx_rate_buy": 4.294129848480225
+    },
+    "ASM": {
+      "avg_price": 9.0,
+      "shares": 0.0002587511673649912,
+      "invested_lei": 0.01,
+      "currency": "USD",
+      "fx_rate_buy": 4.294129848480225
     }
   },
   "realized_pnl": 1426.3793142340573
