@@ -257,10 +257,45 @@ def get_ticker_currency(ticker: str) -> str:
     return ccy
 
 
-def get_fx_to_ron(currency: str, *, ttl_minutes: int = 30) -> float:
+def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minutes: int = 30) -> float:
     c = (currency or "").upper().strip()
     if c in ("RON", "LEI"):
         return 1.0
+
+    now = datetime.utcnow()
+    if c in _FX_CACHE:
+        rate, ts = _FX_CACHE[c]
+        if isinstance(ts, datetime) and (now - ts) <= timedelta(minutes=ttl_minutes) and float(rate) > 0:
+            return float(rate)
+
+    pair = _fx_pair_to_ron(c)
+    if pair is None:
+        # Unknown currency mapping → use fallback if provided
+        if fallback is not None and float(fallback) > 0:
+            _FX_CACHE[c] = (float(fallback), now)
+            return float(fallback)
+        _FX_CACHE[c] = (1.0, now)
+        return 1.0
+
+    try:
+        fx = yf.Ticker(pair).history(period="1d")
+        if fx is not None and (not fx.empty) and ("Close" in fx.columns):
+            rate = float(fx["Close"].iloc[-1])
+            if np.isfinite(rate) and rate > 0:
+                _FX_CACHE[c] = (rate, now)
+                return float(rate)
+    except Exception as e:
+        print(f"⚠️ FX fetch failed for {c} ({pair}): {e}")
+
+    # If live fails, prefer explicit fallback (tracker/data.json)
+    if fallback is not None and float(fallback) > 0:
+        _FX_CACHE[c] = (float(fallback), now)
+        return float(fallback)
+
+    # Last resort (keep your old behavior)
+    last_resort = 4.6 if c == "USD" else 1.0
+    _FX_CACHE[c] = (last_resort, now)
+    return float(last_resort)
 
     now = datetime.utcnow()
     if c in _FX_CACHE:
@@ -630,9 +665,19 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
                 info_state["last_roll_day"] = None
                 info_state["last_weak_update_day"] = None
 
-        ccy = get_ticker_currency(ticker)
-        fx_to_ron = get_fx_to_ron(ccy)
+        # Prefer stored currency from data.json (more stable than yfinance)
+        ccy = (info.get("currency") or get_ticker_currency(ticker) or "USD").upper().strip()
+
+        # Fallback chain: tracker last FX → data.json fx_rate_buy
+        fx_fallback = _safe_float(info_state.get("last_fx_to_ron"), None)
+        if fx_fallback is None:
+            fx_fallback = _safe_float(info_state.get("last_fx_to_lei"), None)
+        if fx_fallback is None:
+            fx_fallback = _safe_float(info.get("fx_rate_buy"), None)
+
+        fx_to_ron = get_fx_to_ron(ccy, fallback=fx_fallback)
         pnl_lei = current_price * shares * fx_to_ron - invested_lei
+
         pnl_pct = (pnl_lei / invested_lei) * 100.0 if invested_lei else 0.0
 
         # MarketTrend from LLM input map
