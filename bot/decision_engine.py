@@ -33,8 +33,21 @@ from tracker import load_data
 from notify import send_discord_alert
 from fetch_data import compute_indicators
 from llm_predict import SellBrain, run_batch_predictions
+from knobs import (
+    TRACKER_FILE,
+    PROFIT_ADJ,
+    STRONG_SELL_MULT,
+    FX_TTL_MINUTES,
+    fx_pair_to_ron,
+    SPX_TICKER,
+    SPX_DAILY_DOWN_PCT,
+    SPX_WEEKLY_DOWN_PCT,
+    SPX_DAILY_UP_PCT,
+    SPX_WEEKLY_UP_PCT,
+    MARKET_BIAS_FEAR,
+    MARKET_BIAS_GREED,
+)
 
-TRACKER_FILE = "bot/sell_alerts_tracker.json"
 LIVE_RESULTS_CSV = "bot/live_results.csv"
 LLM_INPUT_CSV = "bot/LLM_data/input_llm/llm_input_latest.csv"
 LLM_PRED_CSV = "bot/LLM_data/input_llm/llm_predictions.csv"
@@ -42,14 +55,6 @@ LLM_PRED_CSV = "bot/LLM_data/input_llm/llm_predictions.csv"
 # ---------------------------
 # V9 regime params (loaded from agent best_params.json when available)
 # ---------------------------
-
-_PROFIT_ADJ = [
-    (50.0, -0.08),
-    (30.0, -0.06),
-    (10.0, -0.03),
-]
-
-STRONG_SELL_MULT = 1.25
 
 RULE_SCALE_BY_MT = {
     -1: 8.0,
@@ -201,11 +206,52 @@ def compute_sell_threshold(base_early: float, pnl_pct: Optional[float]) -> float
     adj = 0.0
     if pnl_pct is not None and np.isfinite(float(pnl_pct)):
         p = float(pnl_pct)
-        for cut, a in _PROFIT_ADJ:
+        for cut, a in PROFIT_ADJ:
             if p >= cut:
                 adj = a
                 break
     return float(_clamp(float(base_early) + float(adj), 0.45, 0.90))
+
+
+def _get_spx_daily_weekly_returns() -> Tuple[Optional[float], Optional[float]]:
+    """
+    Returns (daily_pct, weekly_pct) for S&P 500 using recent closes.
+    daily_pct: last close vs previous close
+    weekly_pct: last close vs close 5 trading days ago
+    """
+    try:
+        hist = yf.Ticker(SPX_TICKER).history(period="10d", interval="1d")
+        if hist is None or hist.empty or "Close" not in hist.columns:
+            return None, None
+        closes = [float(x) for x in hist["Close"].dropna().tolist()]
+        if len(closes) < 2:
+            return None, None
+        last = closes[-1]
+        prev = closes[-2]
+        daily_pct = ((last / prev) - 1.0) * 100.0 if prev > 0 else None
+        weekly_pct = None
+        if len(closes) >= 6:
+            wk_prev = closes[-6]
+            weekly_pct = ((last / wk_prev) - 1.0) * 100.0 if wk_prev > 0 else None
+        return daily_pct, weekly_pct
+    except Exception:
+        return None, None
+
+
+def _market_bias_from_spx(daily_pct: Optional[float], weekly_pct: Optional[float]) -> float:
+    """
+    Compound market bias:
+      - If BOTH daily and weekly are down beyond thresholds -> +MARKET_BIAS_FEAR
+      - If BOTH daily and weekly are up beyond thresholds   -> +MARKET_BIAS_GREED (negative)
+      - Else -> 0.0
+    """
+    if daily_pct is None or weekly_pct is None:
+        return 0.0
+    if daily_pct <= float(SPX_DAILY_DOWN_PCT) and weekly_pct <= float(SPX_WEEKLY_DOWN_PCT):
+        return float(MARKET_BIAS_FEAR)
+    if daily_pct >= float(SPX_DAILY_UP_PCT) and weekly_pct >= float(SPX_WEEKLY_UP_PCT):
+        return float(MARKET_BIAS_GREED)
+    return 0.0
 
 
 def compute_strong_threshold(early_thr: float) -> float:
@@ -219,23 +265,6 @@ def compute_strong_threshold(early_thr: float) -> float:
 # ---------------------------
 _FX_CACHE = {}  # currency -> (rate, ts_utc)
 _TICKER_CCY_CACHE = {}
-
-
-def _fx_pair_to_ron(currency: str):
-    c = (currency or "").upper().strip()
-    if c in ("RON", "LEI"):
-        return None
-    if c == "USD":
-        return "USDRON=X"
-    if c == "EUR":
-        return "EURRON=X"
-    if c == "GBP":
-        return "GBPRON=X"
-    if c == "CHF":
-        return "CHFRON=X"
-    if c == "CAD":
-        return "CADRON=X"
-    return None
 
 
 def get_ticker_currency(ticker: str) -> str:
@@ -257,7 +286,7 @@ def get_ticker_currency(ticker: str) -> str:
     return ccy
 
 
-def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minutes: int = 30) -> float:
+def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minutes: int = FX_TTL_MINUTES) -> float:
     c = (currency or "").upper().strip()
     if c in ("RON", "LEI"):
         return 1.0
@@ -268,7 +297,7 @@ def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minute
         if isinstance(ts, datetime) and (now - ts) <= timedelta(minutes=ttl_minutes) and float(rate) > 0:
             return float(rate)
 
-    pair = _fx_pair_to_ron(c)
+    pair = fx_pair_to_ron(c)
     if pair is None:
         # Unknown currency mapping → use fallback if provided
         if fallback is not None and float(fallback) > 0:
@@ -642,6 +671,9 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
     sell_alerts = []
     live_rows = []
 
+    spx_daily_pct, spx_weekly_pct = _get_spx_daily_weekly_returns()
+    market_bias = _market_bias_from_spx(spx_daily_pct, spx_weekly_pct)
+
     for ticker, info in stocks.items():
         avg_price = float(info.get("avg_price", 0) or 0)
         invested_lei = float(info.get("invested_lei", 0) or 0)
@@ -779,6 +811,8 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
 
         # Thresholds
         sell_thr_early = compute_sell_threshold(float(rp["base_early"]), pnl_pct)
+        if market_bias != 0.0:
+            sell_thr_early = float(_clamp(float(sell_thr_early) + float(market_bias), 0.45, 0.90))
         sell_thr_strong = compute_strong_threshold(sell_thr_early)
 
         # WeakDays (once per market-day)

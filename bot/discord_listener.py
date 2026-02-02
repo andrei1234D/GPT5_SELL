@@ -13,6 +13,26 @@ import discord
 from discord.ext import commands
 
 from keep_alive import keep_alive
+from knobs import (
+    TRACKER_FILE,
+    PROFIT_ADJ,
+    STRONG_SELL_MULT,
+    FX_TTL_MINUTES,
+    fx_pair_to_ron,
+    profit_based_weak_req,
+    DISCORD_MSG_LIMIT,
+    DEFAULT_WEAK_REQ,
+    UI_BASE_THR_BY_MT,
+    UI_BASE_THR_DEFAULT,
+    UI_THR_EARLY_MIN,
+    UI_THR_EARLY_MAX,
+    UI_THR_STRONG_MIN,
+    UI_THR_STRONG_MAX,
+    UI_THR_STRONG_MIN_ADD,
+    RISK_STABLE_MIN,
+    RISK_STABLE_FRAC,
+    RISK_WATCH_FRAC,
+)
 
 # ---------------------------
 # Version banner (helps confirm the running code)
@@ -20,7 +40,6 @@ from keep_alive import keep_alive
 BOT_VERSION = "2026-01-31 decision-engine-v9_1-ui3-weakreq-3-2"
 
 DATA_FILE = "bot/data.json"
-TRACKER_FILE = "bot/sell_alerts_tracker.json"
 
 # ---------------------------
 # Data Management
@@ -147,45 +166,11 @@ def _safe_int(x, default=None) -> Optional[int]:
 def _clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
-def profit_based_weak_req(pnl_pct: Optional[float], base_req: int) -> int:
-    """
-    Match decision_engine logic:
-      - PnL >= 50%  -> require 4 weak days
-      - PnL >= 100% -> require 3 weak days
-    Only lowers, never raises.
-    """
-    req = int(base_req)
-    p = _safe_float(pnl_pct, None)
-    if p is None:
-        return req
-    if p >= 100.0:
-        return min(req, 3)
-    if p >= 50.0:   
-        return min(req, 4)
-    return req
-
 # ---------------------------
 # FX helpers (multi-currency; live-first, fallback to last-known)
 # ---------------------------
 _FX_CACHE = {}  # currency -> (rate_to_ron, ts_utc)
 _TICKER_CCY_CACHE = {}  # ticker -> currency
-
-
-def _fx_pair_to_ron(currency: str):
-    c = (currency or "").upper().strip()
-    if c in ("RON", "LEI"):
-        return None
-    if c == "USD":
-        return "USDRON=X"
-    if c == "EUR":
-        return "EURRON=X"
-    if c == "GBP":
-        return "GBPRON=X"
-    if c == "CHF":
-        return "CHFRON=X"
-    if c == "CAD":
-        return "CADRON=X"
-    return None
 
 
 def get_ticker_currency(ticker: str) -> str:
@@ -219,7 +204,7 @@ def _read_fx_close(symbol: str) -> Optional[float]:
     return None
 
 
-def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minutes: int = 20) -> float:
+def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minutes: int = FX_TTL_MINUTES) -> float:
     """
     Returns: RON per 1 unit of `currency` (e.g., CAD->RON).
     Behavior: live-first; if live fails, use cached; else use provided fallback; else 1.0.
@@ -237,7 +222,7 @@ def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minute
             return float(rate)
 
     # 1) Direct pair to RON
-    pair = _fx_pair_to_ron(c)
+    pair = fx_pair_to_ron(c)
     if pair:
         v = _read_fx_close(pair)
         if v is not None:
@@ -322,32 +307,22 @@ def get_recent_price(ticker: str, fallback: float) -> float:
 # ---------------------------
 # Threshold fallbacks (UI only; engine values from tracker take precedence)
 # ---------------------------
-_BASE_THR_BY_MT = {-1: 0.64, 0: 0.63, 1: 0.61}
-_STRONG_SELL_MULT = 1.25
-
-_PROFIT_ADJ = [
-    (50.0, -0.08),
-    (30.0, -0.06),
-    (10.0, -0.03),
-]
-
-
 def get_sell_thresholds(pnl_pct: Optional[float], mt: int) -> Tuple[float, float]:
     mt = int(mt) if mt in (-1, 0, 1) else 0
-    early = float(_BASE_THR_BY_MT.get(mt, 0.63))
+    early = float(UI_BASE_THR_BY_MT.get(mt, UI_BASE_THR_DEFAULT))
 
     p = _safe_float(pnl_pct, None)
     if p is not None:
-        for cutoff, adj in _PROFIT_ADJ:
+        for cutoff, adj in PROFIT_ADJ:
             if p >= float(cutoff):
                 early += float(adj)
                 break
 
-    early = _clamp(early, 0.45, 0.90)
+    early = _clamp(early, UI_THR_EARLY_MIN, UI_THR_EARLY_MAX)
 
     # Align to engine: strong = max(early*1.25, early+0.05) then clamp to 0.95
-    strong = max(float(early) * float(_STRONG_SELL_MULT), float(early) + 0.05)
-    strong = _clamp(strong, 0.50, 0.95)
+    strong = max(float(early) * float(STRONG_SELL_MULT), float(early) + UI_THR_STRONG_MIN_ADD)
+    strong = _clamp(strong, UI_THR_STRONG_MIN, UI_THR_STRONG_MAX)
 
     return float(early), float(strong)
 
@@ -356,8 +331,8 @@ def risk_label_from_sell_index(avg_sell_index: Optional[float], early_thr: float
     if avg_sell_index is None:
         return "🟢 Stable"
 
-    stable_cut = max(0.20, 0.40 * early_thr)
-    watch_cut = max(stable_cut, 0.70 * early_thr)
+    stable_cut = max(RISK_STABLE_MIN, RISK_STABLE_FRAC * early_thr)
+    watch_cut = max(stable_cut, RISK_WATCH_FRAC * early_thr)
 
     if avg_sell_index < stable_cut:
         return "🟢 Stable"
@@ -377,7 +352,7 @@ def _segments_len(segs: list[str]) -> int:
     return sum(len(s) for s in segs) + (len(segs) - 1)
 
 
-async def send_chunked_blocks(ctx, header: str, blocks: list[str], totals: str, limit: int = 1900):
+async def send_chunked_blocks(ctx, header: str, blocks: list[str], totals: str, limit: int = DISCORD_MSG_LIMIT):
     chunks: list[list[str]] = [[header]] if header else [[]]
 
     for b in blocks:
@@ -618,7 +593,7 @@ async def list(ctx):
         # If still missing (first run / old tracker), use a conservative default,
         # then apply profit-based lowering to match engine policy.
         if weak_req_base is None:
-            weak_req_base = 5
+            weak_req_base = DEFAULT_WEAK_REQ
 
         weak_req = profit_based_weak_req(pnl_pct, int(weak_req_base))
 
@@ -720,18 +695,12 @@ async def list(ctx):
         if s["mt_prob"] is not None:
             thr_used_txt = f"{float(s['thr_used']):.2f}" if s['thr_used'] is not None else "n/a"
             gate_used_txt = f"{float(s['gate_used']):.2f}" if s['gate_used'] is not None else "n/a"
-            score_txt = f"{float(s['mt_score']):.3f}" if s.get('mt_score') is not None else "n/a"
 
             sell_txt = "SELL" if bool(s["mt_sell"]) else "HOLD"
             lines.append(
                 f"    🤖 MT | {sell_txt} | P {float(s['mt_prob']):.3f} | thr_used {thr_used_txt}"
             )
             lines.append(f"    🔧 Gate {gate_used_txt}")
-            lines.append("")
-
-
-        if s["last_alert"]:
-            lines.append(f"    🚨 Last alert: {s['last_alert']}")
             lines.append("")
 
         ticker_blocks.append("\n".join(lines).rstrip())
@@ -745,7 +714,7 @@ async def list(ctx):
     )
 
     header = f"**📊 Currently Tracked Stocks:** (v={BOT_VERSION})\n"
-    await send_chunked_blocks(ctx, header, ticker_blocks, totals, limit=1900)
+    await send_chunked_blocks(ctx, header, ticker_blocks, totals, limit=DISCORD_MSG_LIMIT)
 
 
 @bot.command()
