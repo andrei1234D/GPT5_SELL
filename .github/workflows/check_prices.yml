@@ -121,9 +121,14 @@ jobs:
             python bot/decision_engine.py
           fi
 
+      - name: Post-process tracker + PnL gain/loss
+        run: |
+          python bot/post_process_tracker.py
+
       - name: Commit and push latest outputs
         run: |
           git add bot/sell_alerts_tracker.json || true
+          git add bot/PnL_gain_loss.json || true
           git add bot/live_results.csv || true
           git add bot/LLM_data/input_llm/llm_input_latest.csv || true
           git add bot/LLM_data/input_llm/llm_predictions.csv || true

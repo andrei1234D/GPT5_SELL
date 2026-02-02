@@ -24,11 +24,11 @@ from knobs import (
     DEFAULT_WEAK_REQ,
     UI_BASE_THR_BY_MT,
     UI_BASE_THR_DEFAULT,
-    UI_THR_EARLY_MIN,
-    UI_THR_EARLY_MAX,
-    UI_THR_STRONG_MIN,
-    UI_THR_STRONG_MAX,
-    UI_THR_STRONG_MIN_ADD,
+    THR_EARLY_MIN,
+    THR_EARLY_MAX,
+    THR_STRONG_MIN,
+    THR_STRONG_MAX,
+    THR_STRONG_MIN_ADD,
     RISK_STABLE_MIN,
     RISK_STABLE_FRAC,
     RISK_WATCH_FRAC,
@@ -318,11 +318,11 @@ def get_sell_thresholds(pnl_pct: Optional[float], mt: int) -> Tuple[float, float
                 early += float(adj)
                 break
 
-    early = _clamp(early, UI_THR_EARLY_MIN, UI_THR_EARLY_MAX)
+    early = _clamp(early, THR_EARLY_MIN, THR_EARLY_MAX)
 
     # Align to engine: strong = max(early*1.25, early+0.05) then clamp to 0.95
-    strong = max(float(early) * float(STRONG_SELL_MULT), float(early) + UI_THR_STRONG_MIN_ADD)
-    strong = _clamp(strong, UI_THR_STRONG_MIN, UI_THR_STRONG_MAX)
+    strong = max(float(early) * float(STRONG_SELL_MULT), float(early) + THR_STRONG_MIN_ADD)
+    strong = _clamp(strong, THR_STRONG_MIN, THR_STRONG_MAX)
 
     return float(early), float(strong)
 

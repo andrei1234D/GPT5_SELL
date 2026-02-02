@@ -37,15 +37,17 @@ from knobs import (
     TRACKER_FILE,
     PROFIT_ADJ,
     STRONG_SELL_MULT,
+    THR_EARLY_MIN,
+    THR_EARLY_MAX,
+    THR_STRONG_MIN,
+    THR_STRONG_MAX,
+    THR_STRONG_MIN_ADD,
     FX_TTL_MINUTES,
     fx_pair_to_ron,
     SPX_TICKER,
     SPX_DAILY_DOWN_PCT,
     SPX_WEEKLY_DOWN_PCT,
-    SPX_DAILY_UP_PCT,
-    SPX_WEEKLY_UP_PCT,
-    MARKET_BIAS_FEAR,
-    MARKET_BIAS_GREED,
+    MARKET_BIAS_DOWN,
 )
 
 LIVE_RESULTS_CSV = "bot/live_results.csv"
@@ -210,7 +212,7 @@ def compute_sell_threshold(base_early: float, pnl_pct: Optional[float]) -> float
             if p >= cut:
                 adj = a
                 break
-    return float(_clamp(float(base_early) + float(adj), 0.45, 0.90))
+    return float(_clamp(float(base_early) + float(adj), THR_EARLY_MIN, THR_EARLY_MAX))
 
 
 def _get_spx_daily_weekly_returns() -> Tuple[Optional[float], Optional[float]]:
@@ -240,24 +242,21 @@ def _get_spx_daily_weekly_returns() -> Tuple[Optional[float], Optional[float]]:
 
 def _market_bias_from_spx(daily_pct: Optional[float], weekly_pct: Optional[float]) -> float:
     """
-    Compound market bias:
-      - If BOTH daily and weekly are down beyond thresholds -> +MARKET_BIAS_FEAR
-      - If BOTH daily and weekly are up beyond thresholds   -> +MARKET_BIAS_GREED (negative)
+    Market bias (down only):
+      - If BOTH daily and weekly are down beyond thresholds -> +MARKET_BIAS_DOWN
       - Else -> 0.0
     """
     if daily_pct is None or weekly_pct is None:
         return 0.0
     if daily_pct <= float(SPX_DAILY_DOWN_PCT) and weekly_pct <= float(SPX_WEEKLY_DOWN_PCT):
-        return float(MARKET_BIAS_FEAR)
-    if daily_pct >= float(SPX_DAILY_UP_PCT) and weekly_pct >= float(SPX_WEEKLY_UP_PCT):
-        return float(MARKET_BIAS_GREED)
+        return float(MARKET_BIAS_DOWN)
     return 0.0
 
 
 def compute_strong_threshold(early_thr: float) -> float:
     strong = float(early_thr) * float(STRONG_SELL_MULT)
-    strong = max(strong, float(early_thr) + 0.05)
-    return float(_clamp(strong, 0.50, 0.95))
+    strong = max(strong, float(early_thr) + THR_STRONG_MIN_ADD)
+    return float(_clamp(strong, THR_STRONG_MIN, THR_STRONG_MAX))
 
 
 # ---------------------------
@@ -901,6 +900,12 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         # ---------------------------
         info_state["last_checked_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
         info_state["last_market_day"] = day_key
+        info_state["last_checked_price"] = float(current_price)
+        info_state["last_invested_lei"] = float(invested_lei)
+        info_state["last_shares"] = float(shares)
+        if not info_state.get("first_seen_time"):
+            info_state["first_seen_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        info_state["last_seen_time"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         info_state["last_signal_label"] = label
         info_state["last_buy_price"] = float(avg_price)
