@@ -3,10 +3,10 @@
   "had_alerts": true,
   "tickers": {
     "M": {
-      "weak_streak": 255.0,
+      "weak_streak": 255.5,
       "recent_peak": 23.850099563598633,
       "last_checked_price": 23.829999923706055,
-      "last_checked_time": "2026-02-02T12:50:09Z",
+      "last_checked_time": "2026-02-02T13:41:37Z",
       "rolling_scores": [
         4.0,
         4.0,
@@ -16,7 +16,7 @@
         4.0,
         4.0
       ],
-      "last_decay_date": "2026-01-30",
+      "last_decay_date": "2026-02-02",
       "was_above_47": false,
       "last_pnl_pct": 38.22480159386562,
       "last_rule_norm": 0.15,
@@ -96,7 +96,7 @@
       "recent_peak": 211.02499389648438,
       "last_alert_time": "2025-11-26T15:41:38Z",
       "last_checked_price": 180.99000549316406,
-      "last_checked_time": "2026-02-02T12:50:09Z",
+      "last_checked_time": "2026-02-02T13:41:37Z",
       "rolling_scores": [
         2.0,
         2.0,
@@ -106,7 +106,7 @@
         2.0,
         2.0
       ],
-      "last_decay_date": "2026-01-30",
+      "last_decay_date": "2026-02-02",
       "was_above_47": false,
       "last_pnl_pct": 0.2554541523752617,
       "last_rule_norm": 0.35,
@@ -183,7 +183,7 @@
       "weak_streak": 0.0,
       "recent_peak": 449.2026062011719,
       "last_checked_price": 265.9200134277344,
-      "last_checked_time": "2026-02-02T12:50:09Z",
+      "last_checked_time": "2026-02-02T13:41:37Z",
       "rolling_scores": [
         3.5,
         3.5,
@@ -193,9 +193,9 @@
         3.5,
         3.5
       ],
-      "last_decay_date": "2026-01-30",
+      "last_decay_date": "2026-02-02",
       "was_above_47": true,
-      "last_alert_time": "2026-02-02T12:50:09Z",
+      "last_alert_time": "2026-02-02T13:41:37Z",
       "last_pnl_pct": 19.78662994627808,
       "last_rule_norm": 0.1,
       "last_mt_regime": 1,
@@ -380,10 +380,10 @@
       "last_mt_gate": 0.0
     },
     "III.TO": {
-      "weak_streak": 21.0,
+      "weak_streak": 21.5,
       "recent_peak": 13.699999809265137,
       "last_checked_price": 9.039999961853027,
-      "last_checked_time": "2026-02-02T12:50:09Z",
+      "last_checked_time": "2026-02-02T13:41:37Z",
       "rolling_scores": [
         4.5,
         4.5,
@@ -393,7 +393,7 @@
         4.5,
         4.5
       ],
-      "last_decay_date": "2026-01-30",
+      "last_decay_date": "2026-02-02",
       "was_above_47": true,
       "last_pnl_pct": 31.239626294190487,
       "last_rule_norm": 0.15,
@@ -403,7 +403,7 @@
       "last_signal_label": "STRONG SELL",
       "last_decision": false,
       "last_mt": 1,
-      "last_mt_pred_sellscore": 0.19236903138153016,
+      "last_mt_pred_sellscore": 0.1923690313815302,
       "last_mt_sell_threshold": 0.31561970114707955,
       "last_mt_sell_signal": true,
       "last_currency": "CAD",
@@ -416,7 +416,7 @@
       "last_contrib_bias_pct": 100.0,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 3.150239944458008,
+      "last_fx_to_ron": 3.154279947280884,
       "last_rule_score": 0.0,
       "last_rule_flags": [
         "Momentum collapse",
@@ -467,7 +467,7 @@
       "last_contrib_mt": 0.2186228311237196,
       "last_mt_prob_thr": 0.75,
       "last_mt_gate": 0.18014751992076095,
-      "last_alert_time": "2026-02-02T12:50:09Z"
+      "last_alert_time": "2026-02-02T13:41:37Z"
     },
     "KEP": {
       "weak_streak": 0.0,
@@ -481,20 +481,20 @@
         2.0,
         2.0
       ],
-      "last_decay_date": "2026-01-30",
+      "last_decay_date": "2026-02-02",
       "was_above_47": false,
       "last_alert_time": "2025-11-12T14:44:22Z",
       "last_checked_price": 16.90999984741211,
-      "last_checked_time": "2026-02-02T12:50:09Z",
+      "last_checked_time": "2026-02-02T13:41:37Z",
       "last_pnl_pct": 2.004819647355859,
       "last_rule_norm": 0.25,
       "last_mt_regime": 1,
-      "last_mt_prob": 0.6536225898397208,
+      "last_mt_prob": 0.6536225898397207,
       "last_mt_weight": 0.3,
       "last_signal_label": "HOLD",
       "last_decision": false,
       "last_mt": 1,
-      "last_mt_pred_sellscore": 0.1596680874569303,
+      "last_mt_pred_sellscore": 0.15966808745693029,
       "last_mt_sell_threshold": 0.31561970114707955,
       "last_mt_sell_signal": false,
       "last_currency": "USD",
@@ -912,7 +912,7 @@
         1.5,
         1.5
       ],
-      "last_decay_date": "2026-01-30",
+      "last_decay_date": "2026-02-02",
       "was_above_47": false,
       "rolling_sell_index": [
         0.125,
@@ -925,7 +925,7 @@
       ],
       "weak_days": 0,
       "last_weak_update_day": "2026-02-02",
-      "last_checked_time": "2026-02-02T12:50:09Z",
+      "last_checked_time": "2026-02-02T13:41:37Z",
       "last_market_day": "2026-02-02",
       "last_signal_label": "HOLD",
       "last_buy_price": 14.310727849803646,
@@ -980,20 +980,20 @@
         3.0,
         3.0
       ],
-      "last_decay_date": "2026-01-30",
+      "last_decay_date": "2026-02-02",
       "was_above_47": false,
       "rolling_sell_index": [
         0.3837779906731466,
         0.3837779906731466,
-        0.3837779906731466,
         0.38377799067314605,
+        0.3837779906731466,
         0.3837779906731466,
         0.3837779906731466,
         0.3837779906731466
       ],
       "weak_days": 0,
       "last_weak_update_day": "2026-02-02",
-      "last_checked_time": "2026-02-02T12:50:09Z",
+      "last_checked_time": "2026-02-02T13:41:37Z",
       "last_market_day": "2026-02-02",
       "last_signal_label": "HOLD",
       "last_buy_price": 34.10278248874957,
@@ -1113,7 +1113,7 @@
         2.0,
         2.0
       ],
-      "last_decay_date": "2026-01-30",
+      "last_decay_date": "2026-02-02",
       "was_above_47": false,
       "rolling_sell_index": [
         0.16666666666666666,
@@ -1126,7 +1126,7 @@
       ],
       "weak_days": 0,
       "last_weak_update_day": "2026-02-02",
-      "last_checked_time": "2026-02-02T12:50:09Z",
+      "last_checked_time": "2026-02-02T13:41:37Z",
       "last_market_day": "2026-02-02",
       "last_signal_label": "HOLD",
       "last_buy_price": 4.91,
