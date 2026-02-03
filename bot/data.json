@@ -20,13 +20,6 @@
       "invested_lei": 1448.18,
       "fx_rate_buy": 4.366399765014648
     },
-    "III.TO": {
-      "avg_price": 6.79,
-      "shares": 74.80602618556702,
-      "invested_lei": 1595.0,
-      "fx_rate_buy": 3.1401784450363888,
-      "currency": "CAD"
-    },
     "KEP": {
       "avg_price": 16.419337449697537,
       "shares": 48.43091566912993,
@@ -62,5 +55,5 @@
       "fx_rate_buy": 3.1542999744415283
     }
   },
-  "realized_pnl": 1371.7435038542662
+  "realized_pnl": 2732.479172188496
 }
