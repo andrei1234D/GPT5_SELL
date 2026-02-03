@@ -1,3 +1,14 @@
 {
-  "tickers": {}
+  "tickers": {
+    "III.TO": {
+      "trades": 1,
+      "avg_pnl_pct": 82.839881024917,
+      "avg_days_held": 0.8066087962962963,
+      "total_cash_gain": 1321.2961023474263,
+      "last_pnl_pct": 82.839881024917,
+      "last_cash_gain": 1321.2961023474263,
+      "last_days_held": 0.8066087962962963,
+      "last_closed_time": "2026-02-03T19:37:51Z"
+    }
+  }
 }
