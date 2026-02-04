@@ -74,6 +74,13 @@
       "invested_lei": 0.001,
       "currency": "USD",
       "fx_rate_buy": 4.318999767303467
+    },
+    "STRL": {
+      "avg_price": 364.0,
+      "shares": 6.360854121944009e-07,
+      "invested_lei": 0.001,
+      "currency": "USD",
+      "fx_rate_buy": 4.318999767303467
     }
   },
   "realized_pnl": 2732.479172188496
