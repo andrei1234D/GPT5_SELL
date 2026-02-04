@@ -61,13 +61,6 @@
       "currency": "USD",
       "fx_rate_buy": 4.318999767303467
     },
-    "CRDO": {
-      "avg_price": 102.0,
-      "shares": 2.2699518631251168e-06,
-      "invested_lei": 0.001,
-      "currency": "USD",
-      "fx_rate_buy": 4.318999767303467
-    },
     "INOD": {
       "avg_price": 48.0,
       "shares": 4.8236477091408735e-06,
