@@ -15,10 +15,11 @@
       "currency": "USD"
     },
     "MU": {
-      "avg_price": 220.5,
-      "shares": 1.5041476053544218,
-      "invested_lei": 1448.18,
-      "fx_rate_buy": 4.366399765014648
+      "avg_price": 248.71662384643994,
+      "shares": 1.8547530038851503,
+      "invested_lei": 2007.98,
+      "fx_rate_buy": 4.352906464212431,
+      "currency": "USD"
     },
     "KEP": {
       "avg_price": 16.419337449697537,
