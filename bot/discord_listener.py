@@ -173,13 +173,13 @@ _FX_CACHE = {}  # currency -> (rate_to_ron, ts_utc)
 _TICKER_CCY_CACHE = {}  # ticker -> currency
 
 
-def get_ticker_currency(ticker: str) -> str:
+def get_ticker_currency(ticker: str, *, yt=None) -> str:
     t = (ticker or "").upper().strip()
     if t in _TICKER_CCY_CACHE:
         return _TICKER_CCY_CACHE[t]
     ccy = "USD"
     try:
-        yt = yf.Ticker(t)
+        yt = yt or _get_ticker_obj(t)
         fi = getattr(yt, "fast_info", None) or {}
         ccy = fi.get("currency") or ccy
         if not ccy:
@@ -190,6 +190,17 @@ def get_ticker_currency(ticker: str) -> str:
     ccy = (ccy or "USD").upper().strip()
     _TICKER_CCY_CACHE[t] = ccy
     return ccy
+
+
+def _get_ticker_obj(ticker: str):
+    """Per-run lightweight cache for yfinance Ticker objects."""
+    t = (ticker or "").upper().strip()
+    if not hasattr(_get_ticker_obj, "_cache"):
+        _get_ticker_obj._cache = {}
+    cache = _get_ticker_obj._cache
+    if t not in cache:
+        cache[t] = yf.Ticker(t)
+    return cache[t]
 
 
 def _read_fx_close(symbol: str) -> Optional[float]:
@@ -261,7 +272,7 @@ def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minute
 # ---------------------------
 # Price helper (more "live" than daily close)
 # ---------------------------
-def get_recent_price(ticker: str, fallback: float) -> float:
+def get_recent_price(ticker: str, fallback: float, *, yt=None) -> float:
     """
     Attempts, in order:
       1) fast_info.last_price (if available)
@@ -272,7 +283,7 @@ def get_recent_price(ticker: str, fallback: float) -> float:
     t = (ticker or "").upper().strip()
 
     try:
-        yt = yf.Ticker(t)
+        yt = yt or _get_ticker_obj(t)
         fi = getattr(yt, "fast_info", None) or {}
         for k in ("last_price", "lastPrice"):
             v = fi.get(k)
@@ -284,7 +295,8 @@ def get_recent_price(ticker: str, fallback: float) -> float:
         pass
 
     try:
-        intraday = yf.Ticker(t).history(period="1d", interval="1m")
+        yt = yt or _get_ticker_obj(t)
+        intraday = yt.history(period="1d", interval="1m")
         if intraday is not None and (not intraday.empty) and ("Close" in intraday.columns):
             vv = float(intraday["Close"].iloc[-1])
             if vv > 0:
@@ -293,7 +305,8 @@ def get_recent_price(ticker: str, fallback: float) -> float:
         pass
 
     try:
-        px = yf.Ticker(t).history(period="1d")
+        yt = yt or _get_ticker_obj(t)
+        px = yt.history(period="1d")
         if px is not None and (not px.empty) and ("Close" in px.columns):
             vv = float(px["Close"].iloc[-1])
             if vv > 0:
@@ -557,17 +570,19 @@ async def list(ctx):
 
     total_unrealized_pnl = 0.0
     stock_list = []
+    fx_run_cache = {}
 
     for ticker, info in stocks.items():
         t = str(ticker).upper().strip()
+        yt = _get_ticker_obj(t)
         avg_price = float(info.get("avg_price", 0))
         shares = float(info.get("shares", 0))
         invested_lei = float(info.get("invested_lei", 0))
 
-        current_price = get_recent_price(t, fallback=avg_price)
+        current_price = get_recent_price(t, fallback=avg_price, yt=yt)
         state = (tracker.get("tickers", {}) or {}).get(t, {}) or {}
 
-        ccy = (info.get("currency") or state.get("last_currency") or get_ticker_currency(t) or "USD").upper().strip()
+        ccy = (info.get("currency") or state.get("last_currency") or get_ticker_currency(t, yt=yt) or "USD").upper().strip()
 
         fx_fallback = _safe_float(state.get("last_fx_to_ron"), None)
         if fx_fallback is None:
@@ -575,7 +590,11 @@ async def list(ctx):
         if fx_fallback is None:
             fx_fallback = _safe_float(info.get("fx_rate_buy"), None)
 
-        fx_to_ron = get_fx_to_ron(ccy, fallback=fx_fallback)
+        if ccy in fx_run_cache:
+            fx_to_ron = fx_run_cache[ccy]
+        else:
+            fx_to_ron = get_fx_to_ron(ccy, fallback=fx_fallback)
+            fx_run_cache[ccy] = fx_to_ron
 
         current_value_lei = current_price * shares * float(fx_to_ron)
         pnl_lei = current_value_lei - invested_lei
@@ -715,6 +734,24 @@ async def list(ctx):
 
     header = f"**📊 Currently Tracked Stocks:** (v={BOT_VERSION})\n"
     await send_chunked_blocks(ctx, header, ticker_blocks, totals, limit=DISCORD_MSG_LIMIT)
+
+
+@bot.command()
+async def remove(ctx, ticker: str):
+    t = ticker.upper().strip()
+    data = load_data()
+    stocks = data.get("stocks", {}) or {}
+
+    if t not in stocks:
+        await ctx.send(f"⚠️ {t} is not being tracked.")
+        return
+
+    del stocks[t]
+    data["stocks"] = stocks
+    save_data(data)
+    push_to_github(DATA_FILE, f"REMOVE {t} without PnL tracking")
+
+    await ctx.send(f"✅ Removed **{t}** from tracking (no PnL recorded)")
 
 
 @bot.command()
