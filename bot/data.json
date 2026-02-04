@@ -53,6 +53,13 @@
       "invested_lei": 2000.0,
       "currency": "CAD",
       "fx_rate_buy": 3.1542999744415283
+    },
+    "UCTT": {
+      "avg_price": 44.03,
+      "shares": 5.2585757446913905e-05,
+      "invested_lei": 0.01,
+      "currency": "USD",
+      "fx_rate_buy": 4.318999767303467
     }
   },
   "realized_pnl": 2732.479172188496
