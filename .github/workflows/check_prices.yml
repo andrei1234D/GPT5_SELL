@@ -6,12 +6,9 @@ permissions:
 
 on:
   schedule:
-    - cron: '0 22-23,0-12/1 * * 1-5'
-    - cron: '30 0-12/1 * * 1-5'
-    - cron: '30 13 * * 1-5'
-    - cron: '0,30 14-16 * * 1-5'
-    - cron: '0,45 17-20 * * 1-5'
-    - cron: '30 21 * * 1-5'
+    - cron: '30 14 * * 1-5'
+    - cron: '0,30 15-20 * * 1-5'
+    - cron: '0 21 * * 1-5'
   workflow_dispatch:
 
 jobs:
