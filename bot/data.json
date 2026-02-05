@@ -1,37 +1,11 @@
 {
   "stocks": {
-    "M": {
-      "avg_price": 17.34114759348088,
-      "shares": 20.097652713469,
-      "invested_lei": 1502.701827395968,
-      "fx_rate_buy": 4.313388827281197,
-      "currency": "USD"
-    },
-    "NVDA": {
-      "avg_price": 179.7670042002792,
-      "shares": 5.714596146949873,
-      "invested_lei": 4474.263323753746,
-      "fx_rate_buy": 4.345926565407039,
-      "currency": "USD"
-    },
-    "MU": {
-      "avg_price": 220.5,
-      "shares": 1.5041476053544218,
-      "invested_lei": 1448.18,
-      "fx_rate_buy": 4.366399765014648
-    },
     "KEP": {
       "avg_price": 16.419337449697537,
-      "shares": 48.43091566912993,
-      "invested_lei": 3482.05,
-      "fx_rate_buy": 4.378833712379269
-    },
-    "FOLD": {
-      "avg_price": 14.310727849803646,
-      "shares": 22.824520385086725,
-      "invested_lei": 1401.0016579858018,
-      "currency": "USD",
-      "fx_rate_buy": 4.29371371505632
+      "shares": 37.147282903371604,
+      "invested_lei": 2670.7877529586435,
+      "fx_rate_buy": 4.363891607334479,
+      "currency": "USD"
     },
     "ERO": {
       "avg_price": 34.10278248874957,
@@ -54,34 +28,13 @@
       "currency": "CAD",
       "fx_rate_buy": 3.1542999744415283
     },
-    "UCTT": {
-      "avg_price": 44.03,
-      "shares": 5.2585757446913905e-05,
+    "WDC": {
+      "avg_price": 260.0,
+      "shares": 8.908495541725218e-06,
       "invested_lei": 0.01,
       "currency": "USD",
-      "fx_rate_buy": 4.318999767303467
-    },
-    "CRDO": {
-      "avg_price": 102.0,
-      "shares": 2.2699518631251168e-06,
-      "invested_lei": 0.001,
-      "currency": "USD",
-      "fx_rate_buy": 4.318999767303467
-    },
-    "INOD": {
-      "avg_price": 48.0,
-      "shares": 4.8236477091408735e-06,
-      "invested_lei": 0.001,
-      "currency": "USD",
-      "fx_rate_buy": 4.318999767303467
-    },
-    "STRL": {
-      "avg_price": 364.0,
-      "shares": 6.360854121944009e-07,
-      "invested_lei": 0.001,
-      "currency": "USD",
-      "fx_rate_buy": 4.318999767303467
+      "fx_rate_buy": 4.317399978637695
     }
   },
-  "realized_pnl": 2732.479172188496
+  "realized_pnl": 4056.424197047292
 }
