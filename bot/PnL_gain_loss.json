@@ -89,6 +89,16 @@
       "last_cash_gain": -152.39454680297513,
       "last_days_held": 1.8616666666666666,
       "last_closed_time": "2026-02-04T21:07:56Z"
+    },
+    "WDC": {
+      "trades": 1,
+      "avg_pnl_pct": 0.12109167667940027,
+      "avg_days_held": 0.004606481481481481,
+      "total_cash_gain": 1.2109167667940027e-05,
+      "last_pnl_pct": 0.12109167667940027,
+      "last_cash_gain": 1.2109167667940027e-05,
+      "last_days_held": 0.004606481481481481,
+      "last_closed_time": "2026-02-05T19:29:32Z"
     }
   }
 }
