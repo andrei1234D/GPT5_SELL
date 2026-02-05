@@ -18,7 +18,7 @@
       "was_above_47": false,
       "last_alert_time": "2025-11-12T14:44:22Z",
       "last_checked_price": 20.739999771118164,
-      "last_checked_time": "2026-02-05T05:54:47Z",
+      "last_checked_time": "2026-02-05T06:16:11Z",
       "last_pnl_pct": 2.004819647355859,
       "last_rule_norm": 0.25,
       "last_mt_regime": 1,
@@ -40,7 +40,7 @@
       "last_contrib_bias_pct": 52.17391304347826,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
-      "last_fx_to_ron": 4.320899963378906,
+      "last_fx_to_ron": 4.321400165557861,
       "last_rule_score": 2.5,
       "last_rule_flags": [
         "MACD bearish"
@@ -92,7 +92,7 @@
       "last_invested_lei": 2670.7877529586435,
       "last_shares": 37.147282903371604,
       "first_seen_time": "2026-02-02T23:25:32Z",
-      "last_seen_time": "2026-02-05T05:54:47Z"
+      "last_seen_time": "2026-02-05T06:16:11Z"
     },
     "ERO": {
       "weak_streak": 0.0,
@@ -119,7 +119,7 @@
       ],
       "weak_days": 0,
       "last_weak_update_day": "2026-02-05",
-      "last_checked_time": "2026-02-05T05:54:47Z",
+      "last_checked_time": "2026-02-05T06:16:11Z",
       "last_market_day": "2026-02-05",
       "last_signal_label": "HOLD",
       "last_buy_price": 34.10278248874957,
@@ -148,14 +148,14 @@
       ],
       "last_mt": 1,
       "last_currency": "USD",
-      "last_fx_to_ron": 4.320899963378906,
+      "last_fx_to_ron": 4.321400165557861,
       "last_mt_prob": 0.7460132770322793,
       "last_mt_prob_thr_model": 0.75,
       "last_mt_gate_used": 0.11608256516499628,
       "last_mt_gate_model": 0.0,
       "last_mt_sell_signal": false,
       "last_mt_weight": 0.3,
-      "last_mt_pred_sellscore": 0.17974819513283655,
+      "last_mt_pred_sellscore": 0.17974819513283652,
       "last_mt_sell_threshold": 0.31561970114707955,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
@@ -165,7 +165,7 @@
       "last_invested_lei": 5134.67,
       "last_shares": 35.11594811239873,
       "first_seen_time": "2026-02-02T23:25:32Z",
-      "last_seen_time": "2026-02-05T05:54:47Z"
+      "last_seen_time": "2026-02-05T06:16:11Z"
     },
     "BTG": {
       "weak_streak": 0.0,
@@ -182,17 +182,17 @@
       "last_decay_date": "2026-02-04",
       "was_above_47": false,
       "rolling_sell_index": [
-        0.1369047619047619,
         0.1488095238095238,
         0.16071428571428573,
         0.17261904761904764,
         0.18452380952380953,
         0.19642857142857142,
+        0.20833333333333334,
         0.20833333333333334
       ],
       "weak_days": 0,
       "last_weak_update_day": "2026-02-05",
-      "last_checked_time": "2026-02-05T05:54:47Z",
+      "last_checked_time": "2026-02-05T06:16:11Z",
       "last_market_day": "2026-02-05",
       "last_signal_label": "HOLD",
       "last_buy_price": 4.91,
@@ -200,7 +200,7 @@
       "last_det_score": 2.5,
       "last_det_rule_scale": 12.0,
       "last_sell_index_raw": 0.20833333333333334,
-      "avg_sell_index": 0.17261904761904762,
+      "avg_sell_index": 0.18282312925170066,
       "sell_index": 0.20833333333333334,
       "last_sell_index": 0.20833333333333334,
       "last_score": 2.5,
@@ -222,7 +222,7 @@
       ],
       "last_mt": 1,
       "last_currency": "USD",
-      "last_fx_to_ron": 4.320899963378906,
+      "last_fx_to_ron": 4.321400165557861,
       "last_mt_prob": 0.6274230925252785,
       "last_mt_prob_thr_model": 0.75,
       "last_mt_gate_used": 0.0,
@@ -239,7 +239,7 @@
       "last_invested_lei": 2894.04,
       "last_shares": 137.26122312848906,
       "first_seen_time": "2026-02-02T23:25:32Z",
-      "last_seen_time": "2026-02-05T05:54:47Z"
+      "last_seen_time": "2026-02-05T06:16:11Z"
     },
     "ARG.TO": {
       "weak_streak": 0.0,
@@ -266,7 +266,7 @@
       ],
       "weak_days": 0,
       "last_weak_update_day": "2026-02-05",
-      "last_checked_time": "2026-02-05T05:54:47Z",
+      "last_checked_time": "2026-02-05T06:16:11Z",
       "last_market_day": "2026-02-05",
       "last_signal_label": "HOLD",
       "last_buy_price": 5.63,
@@ -296,14 +296,14 @@
       ],
       "last_mt": 1,
       "last_currency": "CAD",
-      "last_fx_to_ron": 3.1575100421905518,
+      "last_fx_to_ron": 3.157819986343384,
       "last_mt_prob": 0.8032939024428396,
       "last_mt_prob_thr_model": 0.75,
       "last_mt_gate_used": 0.31542898330466407,
       "last_mt_gate_model": 0.2131756097713584,
       "last_mt_sell_signal": true,
       "last_mt_weight": 0.3,
-      "last_mt_pred_sellscore": 0.1947040464351223,
+      "last_mt_pred_sellscore": 0.19470404643512232,
       "last_mt_sell_threshold": 0.31561970114707955,
       "last_mt_model_type": "ET",
       "last_mt_prob_source": "calibrator",
@@ -313,7 +313,7 @@
       "last_invested_lei": 2000.0,
       "last_shares": 112.62080009337838,
       "first_seen_time": "2026-02-02T23:25:32Z",
-      "last_seen_time": "2026-02-05T05:54:47Z"
+      "last_seen_time": "2026-02-05T06:16:11Z"
     }
   }
 }
