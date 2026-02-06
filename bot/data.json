@@ -27,6 +27,13 @@
       "invested_lei": 2000.0,
       "currency": "CAD",
       "fx_rate_buy": 3.1542999744415283
+    },
+    "NVDA": {
+      "avg_price": 180.0,
+      "shares": 0.12899796269344216,
+      "invested_lei": 100.0,
+      "currency": "USD",
+      "fx_rate_buy": 4.306700229644775
     }
   },
   "realized_pnl": 4056.424197047292
