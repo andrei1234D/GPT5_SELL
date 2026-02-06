@@ -27,6 +27,13 @@
       "invested_lei": 2000.0,
       "currency": "CAD",
       "fx_rate_buy": 3.1542999744415283
+    },
+    "PYPL": {
+      "avg_price": 40.0,
+      "shares": 5.803830682343753e-06,
+      "invested_lei": 0.001,
+      "currency": "USD",
+      "fx_rate_buy": 4.307499885559082
     }
   },
   "realized_pnl": 4056.424197047292
