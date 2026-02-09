@@ -410,6 +410,20 @@ async def on_ready():
     print(f"✅ Logged in as {bot.user} | version={BOT_VERSION}")
 
 
+@bot.event
+async def on_command_error(ctx, error):
+    # Surface errors so commands don't fail silently in Discord or crash the bot.
+    try:
+        await ctx.send(f"?? Command error: {type(error).__name__}: {error}")
+    except Exception:
+        pass
+    try:
+        import traceback
+        traceback.print_exception(type(error), error, error.__traceback__)
+    except Exception:
+        pass
+
+
 # ---------------------------
 # Bot Commands
 # ---------------------------
