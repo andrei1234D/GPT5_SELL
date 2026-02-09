@@ -71,14 +71,14 @@
       "last_closed_time": "2026-02-04T21:07:56Z"
     },
     "MU": {
-      "trades": 1,
-      "avg_pnl_pct": 52.45483396555893,
-      "avg_days_held": 1.8616666666666666,
-      "total_cash_gain": 1053.2825750616303,
-      "last_pnl_pct": 52.45483396555893,
-      "last_cash_gain": 1053.2825750616303,
-      "last_days_held": 1.8616666666666666,
-      "last_closed_time": "2026-02-04T21:07:56Z"
+      "trades": 2,
+      "avg_pnl_pct": 25.798093440087754,
+      "avg_days_held": 0.9308333333333333,
+      "total_cash_gain": 1053.2824891969217,
+      "last_pnl_pct": -0.8586470853834232,
+      "last_cash_gain": -8.586470853834231e-05,
+      "last_days_held": 0.0,
+      "last_closed_time": "2026-02-09T15:59:31Z"
     },
     "NVDA": {
       "trades": 1,
