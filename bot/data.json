@@ -27,6 +27,13 @@
       "invested_lei": 2000.0,
       "currency": "CAD",
       "fx_rate_buy": 3.1542999744415283
+    },
+    "WDC": {
+      "avg_price": 274.69,
+      "shares": 1.9872880208597716,
+      "invested_lei": 2353.16,
+      "currency": "USD",
+      "fx_rate_buy": 4.310699939727783
     }
   },
   "realized_pnl": 4056.424197047292
