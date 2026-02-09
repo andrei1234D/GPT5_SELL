@@ -776,12 +776,14 @@ async def pnl(ctx):
 
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+    if TOKEN:
+        # Defensive trim in case env var has trailing whitespace/newlines (e.g., from file-based injection).
+        TOKEN = TOKEN.strip()
     if not TOKEN:
         print("❌ ERROR: DISCORD_BOT_TOKEN is not set")
         raise SystemExit(1)
 
-    print("✅ DISCORD_BOT_TOKEN found, length:", len(TOKEN))
-    print("Preview:", TOKEN[:8], "...")
+    print("✅ DISCORD_BOT_TOKEN found")
 
     # Run keep_alive only once, in a background thread.
     Thread(target=keep_alive, daemon=True).start()
