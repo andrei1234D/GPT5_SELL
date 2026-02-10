@@ -11,14 +11,14 @@
       "last_closed_time": "2026-02-03T19:37:51Z"
     },
     "CRDO": {
-      "trades": 1,
-      "avg_pnl_pct": -3.2926282189203717,
-      "avg_days_held": 0.01025462962962963,
-      "total_cash_gain": -3.2926282189203715e-05,
-      "last_pnl_pct": -3.2926282189203717,
-      "last_cash_gain": -3.2926282189203715e-05,
-      "last_days_held": 0.01025462962962963,
-      "last_closed_time": "2026-02-04T17:41:57Z"
+      "trades": 2,
+      "avg_pnl_pct": 163.68606725303493,
+      "avg_days_held": 0.008032407407407408,
+      "total_cash_gain": 0.033033549990309816,
+      "last_pnl_pct": 330.6647627249902,
+      "last_cash_gain": 0.03306647627249902,
+      "last_days_held": 0.005810185185185186,
+      "last_closed_time": "2026-02-10T17:06:15Z"
     },
     "INOD": {
       "trades": 1,
@@ -109,6 +109,16 @@
       "last_cash_gain": 1.0382723243150885e-05,
       "last_days_held": 0.0,
       "last_closed_time": "2026-02-06T21:34:08Z"
+    },
+    "AMD": {
+      "trades": 1,
+      "avg_pnl_pct": 979.8999786376953,
+      "avg_days_held": 0.0,
+      "total_cash_gain": 979.8999786376953,
+      "last_pnl_pct": 979.8999786376953,
+      "last_cash_gain": 979.8999786376953,
+      "last_days_held": 0.0,
+      "last_closed_time": "2026-02-10T17:06:15Z"
     }
   }
 }
