@@ -34,13 +34,6 @@
       "invested_lei": 2353.16,
       "currency": "USD",
       "fx_rate_buy": 4.310699939727783
-    },
-    "CRDO": {
-      "avg_price": 138.0,
-      "shares": 7.246376811594203e-05,
-      "invested_lei": 0.01,
-      "currency": "USD",
-      "fx_rate_buy": 1.0
     }
   },
   "realized_pnl": 4056.424197047292
