@@ -91,14 +91,14 @@
       "last_closed_time": "2026-02-04T21:07:56Z"
     },
     "WDC": {
-      "trades": 1,
-      "avg_pnl_pct": 0.12109167667940027,
-      "avg_days_held": 0.004606481481481481,
-      "total_cash_gain": 1.2109167667940027e-05,
-      "last_pnl_pct": 0.12109167667940027,
-      "last_cash_gain": 1.2109167667940027e-05,
-      "last_days_held": 0.004606481481481481,
-      "last_closed_time": "2026-02-05T19:29:32Z"
+      "trades": 2,
+      "avg_pnl_pct": -1.488823987957191,
+      "avg_days_held": 0.9509201388888889,
+      "total_cash_gain": -72.91828989980817,
+      "last_pnl_pct": -3.0987396525937823,
+      "last_cash_gain": -72.91830200897584,
+      "last_days_held": 1.8972337962962964,
+      "last_closed_time": "2026-02-11T16:04:42Z"
     },
     "PYPL": {
       "trades": 1,
@@ -119,6 +119,16 @@
       "last_cash_gain": 979.8999786376953,
       "last_days_held": 0.0,
       "last_closed_time": "2026-02-10T17:06:15Z"
+    },
+    "FORM": {
+      "trades": 1,
+      "avg_pnl_pct": -0.41196296005777466,
+      "avg_days_held": 0.0,
+      "total_cash_gain": -4.119629600577747e-05,
+      "last_pnl_pct": -0.41196296005777466,
+      "last_cash_gain": -4.119629600577747e-05,
+      "last_days_held": 0.0,
+      "last_closed_time": "2026-02-11T16:04:42Z"
     }
   }
 }
