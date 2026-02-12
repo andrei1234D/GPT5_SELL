@@ -27,6 +27,13 @@
       "invested_lei": 2000.0,
       "currency": "CAD",
       "fx_rate_buy": 3.1542999744415283
+    },
+    "FORM": {
+      "avg_price": 94.0,
+      "shares": 9.489257885928474,
+      "invested_lei": 3825.3,
+      "currency": "USD",
+      "fx_rate_buy": 4.28849983215332
     }
   },
   "realized_pnl": 4061.6705749139196
