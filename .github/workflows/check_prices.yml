@@ -112,7 +112,7 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           HOUR=$(date -u +%H)
-          if [ "$HOUR" = "22" ]; then
+          if [ "$HOUR" = "21" ]; then
             python bot/decision_engine.py --endofday
           else
             python bot/decision_engine.py

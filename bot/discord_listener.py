@@ -68,6 +68,7 @@ def push_to_github(file_path, commit_message="Auto-update data.json from Discord
         if not GH_TOKEN:
             print("⚠️ GitHub token not set in secrets (GH_TOKEN)")
             return
+        print("🔐 GH_TOKEN present; attempting GitHub push")
 
         repo = "andrei1234D/GPT5_SELL"
         branch = "main"
@@ -563,8 +564,8 @@ async def sell(ctx, ticker: str, price: float, amount: str):
     )
 
 
-@bot.command()
-async def list(ctx):
+@bot.command(name="list")
+async def list_cmd(ctx):
     pull_from_github(DATA_FILE)
     pull_from_github(TRACKER_FILE)
 
