@@ -121,14 +121,24 @@
       "last_closed_time": "2026-02-10T17:06:15Z"
     },
     "FORM": {
+      "trades": 2,
+      "avg_pnl_pct": 0.531714541374281,
+      "avg_days_held": 4.453900462962963,
+      "total_cash_gain": 59.557994630893084,
+      "last_pnl_pct": 1.4753920428063367,
+      "last_cash_gain": 59.55803582718909,
+      "last_days_held": 8.907800925925926,
+      "last_closed_time": "2026-02-23T15:20:48Z"
+    },
+    "ENLT": {
       "trades": 1,
-      "avg_pnl_pct": -0.41196296005777466,
+      "avg_pnl_pct": -2.910598680862364,
       "avg_days_held": 0.0,
-      "total_cash_gain": -4.119629600577747e-05,
-      "last_pnl_pct": -0.41196296005777466,
-      "last_cash_gain": -4.119629600577747e-05,
+      "total_cash_gain": -0.02910598680862364,
+      "last_pnl_pct": -2.910598680862364,
+      "last_cash_gain": -0.02910598680862364,
       "last_days_held": 0.0,
-      "last_closed_time": "2026-02-11T16:04:42Z"
+      "last_closed_time": "2026-02-23T15:20:48Z"
     }
   }
 }
