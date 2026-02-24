@@ -34,6 +34,13 @@
       "invested_lei": 1000.0,
       "currency": "USD",
       "fx_rate_buy": 4.3256001472473145
+    },
+    "DOCN": {
+      "avg_price": 60.64,
+      "shares": 3.812364668518471,
+      "invested_lei": 1000.0,
+      "currency": "USD",
+      "fx_rate_buy": 4.3256001472473145
     }
   },
   "realized_pnl": 4151.9357463108045
