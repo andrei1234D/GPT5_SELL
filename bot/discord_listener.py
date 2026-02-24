@@ -40,6 +40,7 @@ from knobs import (
 BOT_VERSION = "2026-01-31 decision-engine-v9_1-ui3-weakreq-3-2"
 
 DATA_FILE = "bot/data.json"
+TRACKER_PRICE_MAX_AGE_HOURS = 5
 
 # ---------------------------
 # Data Management
@@ -318,6 +319,15 @@ def get_recent_price(ticker: str, fallback: float, *, yt=None) -> float:
     return float(fallback)
 
 
+def _parse_utc_ts(ts: Optional[str]) -> Optional[datetime]:
+    if not ts:
+        return None
+    try:
+        return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return None
+
+
 # ---------------------------
 # Threshold fallbacks (UI only; engine values from tracker take precedence)
 # ---------------------------
@@ -594,8 +604,18 @@ async def list_cmd(ctx):
         shares = float(info.get("shares", 0))
         invested_lei = float(info.get("invested_lei", 0))
 
-        current_price = get_recent_price(t, fallback=avg_price, yt=yt)
         state = (tracker.get("tickers", {}) or {}).get(t, {}) or {}
+        state_price = _safe_float(state.get("last_checked_price"), None)
+        state_ts = _parse_utc_ts(state.get("last_checked_time"))
+        use_tracker_price = False
+        if state_price is not None and state_price > 0 and state_ts is not None:
+            age_sec = (datetime.utcnow() - state_ts).total_seconds()
+            use_tracker_price = (age_sec >= 0) and (age_sec <= (TRACKER_PRICE_MAX_AGE_HOURS * 3600))
+
+        if use_tracker_price:
+            current_price = float(state_price)
+        else:
+            current_price = get_recent_price(t, fallback=avg_price, yt=yt)
 
         ccy = (info.get("currency") or state.get("last_currency") or get_ticker_currency(t, yt=yt) or "USD").upper().strip()
 
