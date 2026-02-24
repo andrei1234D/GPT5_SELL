@@ -34,6 +34,13 @@
       "invested_lei": 1000.0,
       "currency": "USD",
       "fx_rate_buy": 4.3256001472473145
+    },
+    "OIS": {
+      "avg_price": 13.54,
+      "shares": 17.072803900622226,
+      "invested_lei": 1000.0,
+      "currency": "USD",
+      "fx_rate_buy": 4.325900077819824
     }
   },
   "realized_pnl": 4151.9357463108045
