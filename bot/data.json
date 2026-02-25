@@ -22,11 +22,11 @@
       "fx_rate_buy": 3.1542999744415283
     },
     "DOCN": {
-      "avg_price": 60.64,
-      "shares": 3.812364668518471,
-      "invested_lei": 1000.0,
+      "avg_price": 61.83664447959406,
+      "shares": 7.481504395579462,
+      "invested_lei": 2000.0,
       "currency": "USD",
-      "fx_rate_buy": 4.3256001472473145
+      "fx_rate_buy": 4.3231000900268555
     },
     "OIS": {
       "avg_price": 13.54,
