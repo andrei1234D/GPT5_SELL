@@ -48,6 +48,13 @@
       "invested_lei": 14748.03,
       "currency": "USD",
       "fx_rate_buy": 4.321499824523926
+    },
+    "EFX": {
+      "avg_price": 31.03,
+      "shares": 11.214549170108462,
+      "invested_lei": 1500.0,
+      "currency": "USD",
+      "fx_rate_buy": 4.310500144958496
     }
   },
   "realized_pnl": 4151.9357463108045
