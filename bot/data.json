@@ -69,6 +69,13 @@
       "invested_lei": 0.01,
       "currency": "CAD",
       "fx_rate_buy": 3.1590099334716797
+    },
+    "HSLV.TO": {
+      "avg_price": 10.11,
+      "shares": 0.0003131106594510393,
+      "invested_lei": 0.01,
+      "currency": "CAD",
+      "fx_rate_buy": 3.1590099334716797
     }
   },
   "realized_pnl": 4151.9357463108045
