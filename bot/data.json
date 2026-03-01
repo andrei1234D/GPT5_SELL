@@ -49,13 +49,6 @@
       "currency": "USD",
       "fx_rate_buy": 4.321499824523926
     },
-    "LUN": {
-      "avg_price": 43.68,
-      "shares": 10.622327861674774,
-      "invested_lei": 2000.0,
-      "currency": "USD",
-      "fx_rate_buy": 4.310500144958496
-    },
     "EFX.TO": {
       "avg_price": 31.03,
       "shares": 15.30236271535614,
