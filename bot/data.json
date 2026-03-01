@@ -62,13 +62,6 @@
       "invested_lei": 1500.0,
       "currency": "CAD",
       "fx_rate_buy": 3.1590099334716797
-    },
-    "APM": {
-      "avg_price": 10.5,
-      "shares": 0.00022087268297309314,
-      "invested_lei": 0.01,
-      "currency": "USD",
-      "fx_rate_buy": 4.3119001388549805
     }
   },
   "realized_pnl": 4151.9357463108045
