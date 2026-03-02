@@ -159,6 +159,36 @@
       "last_cash_gain": -0.009257142884390696,
       "last_days_held": 0.0,
       "last_closed_time": "2026-03-01T18:14:56Z"
+    },
+    "APM.TO": {
+      "trades": 1,
+      "avg_pnl_pct": 0.0,
+      "avg_days_held": 0.009050925925925926,
+      "total_cash_gain": 0.0,
+      "last_pnl_pct": 0.0,
+      "last_cash_gain": 0.0,
+      "last_days_held": 0.009050925925925926,
+      "last_closed_time": "2026-03-02T15:12:20Z"
+    },
+    "HSLV.TO": {
+      "trades": 1,
+      "avg_pnl_pct": -3.395872923139809e-06,
+      "avg_days_held": 0.009050925925925926,
+      "total_cash_gain": -3.395872923139809e-10,
+      "last_pnl_pct": -3.395872923139809e-06,
+      "last_cash_gain": -3.395872923139809e-10,
+      "last_days_held": 0.009050925925925926,
+      "last_closed_time": "2026-03-02T15:12:20Z"
+    },
+    "MAU.TO": {
+      "trades": 1,
+      "avg_pnl_pct": 0.0,
+      "avg_days_held": 0.009050925925925926,
+      "total_cash_gain": 0.0,
+      "last_pnl_pct": 0.0,
+      "last_cash_gain": 0.0,
+      "last_days_held": 0.009050925925925926,
+      "last_closed_time": "2026-03-02T15:12:20Z"
     }
   }
 }
