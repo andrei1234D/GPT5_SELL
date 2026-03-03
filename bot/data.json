@@ -62,6 +62,13 @@
       "invested_lei": 2000.0,
       "currency": "CAD",
       "fx_rate_buy": 3.1590099334716797
+    },
+    "ENLT": {
+      "avg_price": 73.65,
+      "shares": 4.607515043405827,
+      "invested_lei": 1500.0,
+      "currency": "USD",
+      "fx_rate_buy": 4.420300006866455
     }
   },
   "realized_pnl": 4151.9357463108045
