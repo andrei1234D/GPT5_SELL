@@ -1,3 +1,9 @@
 bot/test_data.csv
 bot/test_results.csv
 .github\workflows\test-sell-signals.yml
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.env
+*.log

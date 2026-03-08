@@ -22,7 +22,7 @@ import argparse
 import json
 import os
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 import numpy as np
@@ -33,6 +33,7 @@ from tracker import load_data
 from notify import send_discord_alert
 from fetch_data import compute_indicators
 from llm_predict import SellBrain, run_batch_predictions
+from model_registry import ModelRegistry
 from knobs import (
     TRACKER_FILE,
     PROFIT_ADJ,
@@ -70,30 +71,52 @@ _FALLBACK_PARAMS = {
         "det_cap": 0.5939142383728888,
         "ml_cap": 0.6994237853601922,
         "ml_prob_thr": 0.7150544609388172,
+        "ml_peak_gate": 0.0,
         "weak_frac": 0.7655782785928555,
         "weak_req": 1,
+        "peak_cap": 0.20,
+        "peak_prob_thr": 0.70,
+        "peak_boost_cap": 0.10,
+        "peak_boost_thr": 0.85,
+        "peak_thr_shift": 0.04,
+        "quality_prob_thr": 0.0,
     },
      0: {
         "base_early": 0.608935633403437,
         "det_cap": 0.4134072394701689,
         "ml_cap": 0.7253594424175182,
         "ml_prob_thr": 0.8311084111657097,
+        "ml_peak_gate": 0.0,
         "weak_frac": 0.5724806156424604,
         "weak_req": 5,
+        "peak_cap": 0.20,
+        "peak_prob_thr": 0.70,
+        "peak_boost_cap": 0.10,
+        "peak_boost_thr": 0.85,
+        "peak_thr_shift": 0.04,
+        "quality_prob_thr": 0.0,
     },
      1: {
         "base_early": 0.5524324445578574,
         "det_cap": 0.8230224748887198,
         "ml_cap": 0.7376868954204823,
         "ml_prob_thr": 0.7126578649111824,
+        "ml_peak_gate": 0.0,
         "weak_frac": 0.8267670621985246,
         "weak_req": 5,
+        "peak_cap": 0.20,
+        "peak_prob_thr": 0.70,
+        "peak_boost_cap": 0.10,
+        "peak_boost_thr": 0.85,
+        "peak_thr_shift": 0.04,
+        "quality_prob_thr": 0.0,
     },
 }
 
 SELL_INDEX_ROLL_N = 7
 
 ML_RAMP_START = float(os.getenv("ML_RAMP_START", "0.01") or 0.01)
+PEAK_RAMP_START = float(os.getenv("PEAK_RAMP_START", "0.01") or 0.01)
 RAMP_DEBUG = (os.getenv("RAMP_DEBUG", "").strip() == "1")
 
 
@@ -114,14 +137,14 @@ def _safe_float(x, default=None):
 
 
 def _today_utc() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def _market_day_key(now_utc: Optional[datetime] = None) -> str:
     """
     Returns YYYY-MM-DD in America/New_York so 'once per day' aligns with US market day.
     """
-    now_utc = now_utc or datetime.utcnow()
+    now_utc = now_utc or datetime.now(timezone.utc)
     try:
         from zoneinfo import ZoneInfo  # py3.9+
         ny = ZoneInfo("America/New_York")
@@ -190,8 +213,15 @@ def _load_agent_best_params() -> dict:
                 "det_cap": float(v["det_cap"]),
                 "ml_cap": float(v["ml_cap"]),
                 "ml_prob_thr": float(v["ml_prob_thr"]),
+                "ml_peak_gate": float(v.get("ml_peak_gate", 0.0)),
                 "weak_frac": float(v["weak_frac"]),
                 "weak_req": int(v["weak_req"]),
+                "peak_cap": float(v.get("peak_cap", 0.20)),
+                "peak_prob_thr": float(v.get("peak_prob_thr", 0.70)),
+                "peak_boost_cap": float(v.get("peak_boost_cap", 0.10)),
+                "peak_boost_thr": float(v.get("peak_boost_thr", 0.85)),
+                "peak_thr_shift": float(v.get("peak_thr_shift", 0.04)),
+                "quality_prob_thr": float(v.get("quality_prob_thr", 0.0)),
             }
         except Exception:
             continue
@@ -290,7 +320,7 @@ def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minute
     if c in ("RON", "LEI"):
         return 1.0
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if c in _FX_CACHE:
         rate, ts = _FX_CACHE[c]
         if isinstance(ts, datetime) and (now - ts) <= timedelta(minutes=ttl_minutes) and float(rate) > 0:
@@ -325,7 +355,7 @@ def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minute
     _FX_CACHE[c] = (last_resort, now)
     return float(last_resort)
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if c in _FX_CACHE:
         rate, ts = _FX_CACHE[c]
         if isinstance(ts, datetime) and (now - ts) <= timedelta(minutes=ttl_minutes) and float(rate) > 0:
@@ -405,7 +435,7 @@ def git_commit_tracker():
         else:
             print(f"⚠️ Skipping missing file: {file_path}")
 
-    commit_msg = f"Auto-update tracker + MT data [{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}]"
+    commit_msg = f"Auto-update tracker + MT data [{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}]"
     _run(["git", "commit", "-m", commit_msg])
     _run(["git", "pull", "--rebase"])
     push_rc = _run(["git", "push"])
@@ -535,7 +565,7 @@ def check_sell_conditions(
 
     info["recent_peak"] = max(float(info.get("recent_peak", current_price)), float(current_price))
 
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now(timezone.utc)
     market_hour = 13 <= now_utc.hour <= 21
 
     if pnl_pct is not None:
@@ -632,13 +662,25 @@ def _ml_ramp_contrib(mt_prob: Optional[float], *, thr_used: float, cap: float, s
     return contrib, gate
 
 
+def _ml_gate(mt_prob: Optional[float], *, thr_used: float) -> float:
+    if mt_prob is None or not np.isfinite(float(mt_prob)):
+        return 0.0
+    p = float(_clamp(float(mt_prob), 0.0, 1.0))
+    thr = float(_clamp(float(thr_used), 0.0, 0.999999))
+    if p < thr:
+        return 0.0
+    denom = (1.0 - thr)
+    gate = (p - thr) / denom if denom > 0 else 1.0
+    return float(_clamp(gate, 0.0, 1.0))
+
+
 def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
     agent_params = _load_agent_best_params()
 
     file_to_load = "bot/test_data.csv" if test_mode else "bot/data.json"
     tracker = load_tracker()
 
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now(timezone.utc)
     day_key = _market_day_key(now_utc)
 
     if tracker.get("date") != day_key:
@@ -653,18 +695,18 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
 
     llm_input_map = _load_llm_input_map()
 
-    sell_brain = None
+    reg = None
     try:
-        sell_brain = SellBrain()
-        print("🧠 MT SELL brain loaded successfully (bear/neutral/bull).")
+        reg = ModelRegistry()
+        print("🧠 Model registry loaded (MT + Peak + Quality).")
         try:
             outp = run_batch_predictions(LLM_INPUT_CSV, LLM_PRED_CSV, model_dir=None)
             print(f"🧾 MT predictions refreshed → {outp}")
         except Exception as e:
             print(f"⚠️ Could not refresh MT predictions CSV: {e}")
     except Exception as e:
-        print(f"⚠️ Could not load MT brain: {e}")
-        sell_brain = None
+        print(f"⚠️ Could not load model registry: {e}")
+        reg = None
 
     stocks = tracked["stocks"]
     sell_alerts = []
@@ -753,16 +795,22 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         rule_norm = min(1.0, float(det_avg_score) / rule_scale) if rule_scale > 0 else 0.0
         det_contrib = min(float(rp["det_cap"]), float(rule_norm))
 
-        # MT brain
+        # MT/Peak/Quality models
         mt_pred = None
-        if sell_brain and ml_row:
+        peak_pred = None
+        quality_pred = None
+        if reg and ml_row:
             try:
-                mt_pred = sell_brain.predict(ml_row, market_trend=mt)
+                mt_pred = reg.predict_mt(ml_row, market_trend=mt)
+                peak_pred = reg.predict_peak(ml_row, market_trend=mt)
+                quality_pred = reg.predict_quality(ml_row, market_trend=mt)
             except Exception as e:
-                print(f"⚠️ MT prediction failed for {ticker}: {e}")
+                print(f"⚠️ Model prediction failed for {ticker}: {e}")
                 mt_pred = None
-        elif sell_brain and not ml_row:
-            print(f"⚠️ {ticker}: missing ML input row in {LLM_INPUT_CSV} (cannot run MT model).")
+                peak_pred = None
+                quality_pred = None
+        elif reg and not ml_row:
+            print(f"⚠️ {ticker}: missing ML input row in {LLM_INPUT_CSV} (cannot run models).")
 
         mt_prob = None if not mt_pred else mt_pred.get("mt_prob")
         mt_prob_thr_model = None if not mt_pred else mt_pred.get("mt_prob_threshold")
@@ -773,6 +821,11 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         mt_sell_signal = False if not mt_pred else bool(mt_pred.get("mt_sell_signal") or False)
         model_type = None if not mt_pred else mt_pred.get("model_type")
         prob_source = None if not mt_pred else mt_pred.get("prob_source")
+
+        peak_prob = None if not peak_pred else peak_pred.get("peak_prob")
+        peak_prob_thr_model = None if not peak_pred else peak_pred.get("peak_prob_threshold")
+        quality_prob = None if not quality_pred else quality_pred.get("quality_prob")
+        quality_prob_thr_model = None if not quality_pred else quality_pred.get("quality_prob_threshold")
 
         # ML ramp uses agent params (thr_used/cap_used)
         ml_prob_thr_used = float(rp["ml_prob_thr"])
@@ -785,6 +838,37 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
             start=ML_RAMP_START,
         )
 
+        # Peak ML contribution
+        peak_prob_thr_used = float(rp.get("peak_prob_thr", 0.70))
+        peak_cap_used = float(rp.get("peak_cap", 0.20))
+        peak_boost_thr = float(rp.get("peak_boost_thr", 0.85))
+        peak_boost_cap = float(rp.get("peak_boost_cap", 0.10))
+        peak_thr_shift = float(rp.get("peak_thr_shift", 0.04))
+        ml_peak_gate = float(rp.get("ml_peak_gate", 0.0))
+        quality_prob_thr_used = float(rp.get("quality_prob_thr", 0.0))
+
+        peak_gate = _ml_gate(peak_prob, thr_used=peak_prob_thr_used)
+        peak_contrib, _ = _ml_ramp_contrib(
+            peak_prob,
+            thr_used=peak_prob_thr_used,
+            cap=peak_cap_used,
+            start=PEAK_RAMP_START,
+        )
+        peak_boost, _ = _ml_ramp_contrib(
+            peak_prob,
+            thr_used=peak_boost_thr,
+            cap=peak_boost_cap,
+            start=0.0,
+        )
+
+        if mt == -1:
+            peak_contrib = 0.0
+            peak_boost = 0.0
+            peak_gate = 0.0
+
+        if ml_peak_gate > 0.0:
+            ml_contrib *= float((1.0 - ml_peak_gate) + ml_peak_gate * float(peak_gate))
+
         if RAMP_DEBUG and mt_prob is not None:
             print(
                 f"[RAMP_DEBUG] {ticker} mt={mt} "
@@ -792,7 +876,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
                 f"gate_norm={ml_gate_used:.6f} cap={ml_cap_used:.6f} ml_contrib={ml_contrib:.6f}"
             )
 
-        sell_index_raw = float(_clamp(det_contrib + ml_contrib, 0.0, 1.0))
+        sell_index_raw = float(_clamp(det_contrib + ml_contrib + peak_contrib + peak_boost, 0.0, 1.0))
 
         # Rolling avg sell index (every engine run / check)
         roll = info_state.get("rolling_sell_index", []) or []
@@ -812,6 +896,8 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         sell_thr_early = compute_sell_threshold(float(rp["base_early"]), pnl_pct)
         if market_bias != 0.0:
             sell_thr_early = float(_clamp(float(sell_thr_early) + float(market_bias), 0.45, 0.90))
+        if peak_thr_shift > 0.0 and peak_gate > 0.0:
+            sell_thr_early = float(_clamp(float(sell_thr_early) - float(peak_thr_shift) * float(peak_gate), THR_EARLY_MIN, THR_EARLY_MAX))
         sell_thr_strong = compute_strong_threshold(sell_thr_early)
 
         # WeakDays (once per market-day)
@@ -843,6 +929,12 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         # Profit bypass (DISABLED): always require WeakDays
         bypass_weak = False
 
+        # Quality gate (soft block for non-hard-stop sells)
+        quality_pass = True
+        if quality_prob is not None and np.isfinite(float(quality_prob)) and float(quality_prob_thr_used) > 0.0:
+            if float(quality_prob) < float(quality_prob_thr_used) and not bool(rule_sell):
+                quality_pass = False
+
         decision = False
         label = "HOLD"
         color_tag = "🟢"
@@ -852,7 +944,9 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
             label = "HARD STOP-LOSS SELL"
             color_tag = "🔴"
         else:
-            if float(avg_sell_index) >= float(sell_thr_strong):
+            if not quality_pass:
+                decision = False
+            elif float(avg_sell_index) >= float(sell_thr_strong):
                 decision = True
                 label = "STRONG SELL"
                 color_tag = "🔴"
@@ -876,12 +970,15 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         if mt_prob is not None:
             print(
                 f"    Mix: Det +{det_contrib:.2f} (DetAvgScore {det_avg_score:.1f}/{rule_scale:.0f}, cap {float(rp['det_cap']):.2f}) | "
-                f"ML +{ml_contrib:.2f} (P {float(mt_prob):.2f} thr_used {ml_prob_thr_used:.2f}, cap {float(rp['ml_cap']):.2f})"
+                f"ML +{ml_contrib:.2f} (P {float(mt_prob):.2f} thr_used {ml_prob_thr_used:.2f}, cap {float(rp['ml_cap']):.2f}) | "
+                f"Peak +{peak_contrib:.2f} (P {('%.2f' % float(peak_prob)) if peak_prob is not None else 'n/a'} "
+                f"thr_used {peak_prob_thr_used:.2f}, boost {peak_boost:.2f}) | "
+                f"Qual P {('%.2f' % float(quality_prob)) if quality_prob is not None else 'n/a'}"
             )
         else:
             print(
                 f"    Mix: Det +{det_contrib:.2f} (DetAvgScore {det_avg_score:.1f}/{rule_scale:.0f}, cap {float(rp['det_cap']):.2f}) | "
-                f"ML +0.00 (n/a)"
+                f"ML +0.00 (n/a) | Peak +{peak_contrib:.2f} | Qual P {('%.2f' % float(quality_prob)) if quality_prob is not None else 'n/a'}"
             )
 
         print(f"    RuleFlags: {flags_txt}")
@@ -941,6 +1038,14 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         info_state["last_contrib_rule"] = float(det_contrib)
         info_state["last_contrib_mt"] = float(ml_contrib)
 
+        info_state["last_peak_prob"] = None if peak_prob is None else float(peak_prob)
+        info_state["last_peak_prob_thr_model"] = None if peak_prob_thr_model is None else float(peak_prob_thr_model)
+        info_state["last_quality_prob"] = None if quality_prob is None else float(quality_prob)
+        info_state["last_contrib_peak"] = float(peak_contrib)
+        info_state["last_contrib_peak_boost"] = float(peak_boost)
+        info_state["last_peak_gate"] = float(peak_gate)
+        info_state["last_quality_thr"] = float(quality_prob_thr_used)
+
         info_state["last_rule_flags"] = list(rule_reasons) if isinstance(rule_reasons, list) else []
 
         info_state["last_mt"] = int(mt)
@@ -969,29 +1074,35 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
             info_state["weak_days"] = 0
             info_state["last_weak_update_day"] = day_key
 
-                        # Build alert message (concise; show only agent-used MT threshold + gate)
+            # Build alert message (concise; show only agent-used MT threshold + gate)
             mt_line = ""
             if mt_prob is not None and np.isfinite(float(mt_prob)):
                 mt_line = (
-                    f"🤖 MT: P {float(mt_prob):.3f} (thr_used {ml_prob_thr_used:.2f}) | Gate {ml_gate_used:.2f}\n"
+                    f"\U0001F916 MT: P {float(mt_prob):.3f} (thr {ml_prob_thr_used:.2f}) | Gate {ml_gate_used:.2f}\n"
                 )
+
+            mix_line = f"\U0001F9E9 Mix: Det +{det_contrib:.2f} | ML +{ml_contrib:.2f}"
+            if peak_prob is not None and np.isfinite(float(peak_prob)):
+                mix_line += f" | Peak +{peak_contrib:.2f} (P {float(peak_prob):.2f})"
+            if quality_prob is not None and np.isfinite(float(quality_prob)):
+                mix_line += f" | Qual P {float(quality_prob):.2f}"
+            mix_line += "\n"
 
             rule_note = (rule_msg or "").strip()
             rule_line = ""
             if rule_note and rule_note.lower() not in ("holding steady", "holding steady."):
-                rule_line = f"🧾 Rule note: {rule_note}\n"
+                rule_line = f"\U0001F9FE Rule: {rule_note}\n"
 
             sell_alerts.append(
-                f"📈 **[{ticker}] {label}**\n"
+                f"\U0001F4C8 **[{ticker}] {label}**\n"
                 f"{pnl_context}\n"
-                f"💰 **PnL:** {pnl_pct:+.2f}% ({ccy}→RON fx={fx_to_ron:.4f})\n"
-                f"🧠 **AvgSellIndex:** {avg_sell_index:.2f} (raw {sell_index_raw:.2f})\n"
-                f"🎯 **Thr:** early {sell_thr_early:.2f} / strong {sell_thr_strong:.2f}\n"
-                f"⏳ **WeakDays:** {weak_days}/{weak_req_eff} (weak_thr {weak_thr:.2f})\n"
-                f"🧩 Mix: Det +{det_contrib:.2f} | ML +{ml_contrib:.2f}\n"
+                f"\U0001F4B0 **PnL:** {pnl_pct:+.2f}% ({ccy}\u2192RON fx={fx_to_ron:.4f})\n"
+                f"\U0001F9E0 **AvgSellIndex:** {avg_sell_index:.2f}\n"
+                f"\U0001F3AF **Thr:** {sell_thr_early:.2f}/{sell_thr_strong:.2f} | Weak {weak_days}/{weak_req_eff} (thr {weak_thr:.2f})\n"
+                + mix_line
                 + mt_line
                 + rule_line
-                + f"🕒 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                + f"\U0001F552 {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
             )
 
 
@@ -1022,6 +1133,8 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
                 "ml_prob_thr_used": float(ml_prob_thr_used),
                 "det_contrib": float(det_contrib),
                 "ml_contrib": float(ml_contrib),
+                "peak_contrib": float(peak_contrib),
+                "peak_boost": float(peak_boost),
                 "mt_prob": None if mt_prob is None else float(mt_prob),
                 "mt_prob_threshold": None if mt_prob_thr_model is None else float(mt_prob_thr_model),
                 "mt_gate_used": float(ml_gate_used),
@@ -1031,6 +1144,10 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
                 "sell_threshold_model": None if sell_threshold_model is None else float(sell_threshold_model),
                 "model_type": model_type,
                 "prob_source": prob_source,
+                "peak_prob": None if peak_prob is None else float(peak_prob),
+                "peak_prob_threshold": None if peak_prob_thr_model is None else float(peak_prob_thr_model),
+                "quality_prob": None if quality_prob is None else float(quality_prob),
+                "quality_prob_threshold": float(quality_prob_thr_used),
             }
         )
 
@@ -1049,7 +1166,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
     if not test_mode:
         git_commit_tracker()
 
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now(timezone.utc)
     if sell_alerts:
         msg = "🚨 **SELL SIGNALS TRIGGERED** 🚨\n\n" + "\n\n".join(sell_alerts)
         for chunk in [msg[i : i + 1900] for i in range(0, len(msg), 1900)]:
@@ -1065,7 +1182,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         except Exception as e:
             print(f"⚠️ Discord send failed: {e}")
 
-    print(f"✅ Decision Engine Run Complete at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    print(f"✅ Decision Engine Run Complete at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
 
 if __name__ == "__main__":

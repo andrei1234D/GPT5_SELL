@@ -16,7 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MT_MODELS_BUCKET: gpt5-sell-models-balasandrei-20251221
-      MT_MODELS_PREFIX: models
+      MT_MODELS_PREFIX: models/mt
+      PEAK_MODELS_PREFIX: models/peak
+      QUALITY_MODELS_PREFIX: models/quality
       MT_MODELS_VERSION: '20251221'
 
     steps:
@@ -32,12 +34,25 @@ jobs:
         run: |
           echo "SELL_MODEL_DIR=${RUNNER_TEMP}/mt_models" >> "$GITHUB_ENV"
           echo "Using SELL_MODEL_DIR=${RUNNER_TEMP}/mt_models"
+          echo "PEAK_MODEL_DIR=${RUNNER_TEMP}/peak_models" >> "$GITHUB_ENV"
+          echo "QUALITY_MODEL_DIR=${RUNNER_TEMP}/quality_models" >> "$GITHUB_ENV"
+          echo "SELL_META_DIR=${RUNNER_TEMP}/mt_models" >> "$GITHUB_ENV"
 
       - name: Cache MT models
         uses: actions/cache@v3
         with:
           path: ${{ runner.temp }}/mt_models
           key: mt-models-${{ env.MT_MODELS_VERSION }}
+      - name: Cache Peak models
+        uses: actions/cache@v3
+        with:
+          path: ${{ runner.temp }}/peak_models
+          key: peak-models-${{ env.MT_MODELS_VERSION }}
+      - name: Cache Quality models
+        uses: actions/cache@v3
+        with:
+          path: ${{ runner.temp }}/quality_models
+          key: quality-models-${{ env.MT_MODELS_VERSION }}
       - name: Show GitHub context (for WIF condition)
         shell: bash
         run: |
@@ -62,7 +77,7 @@ jobs:
           set -euo pipefail
           mkdir -p "${SELL_MODEL_DIR}"
 
-          for f in best_model_MT-1.joblib best_model_MT0.joblib best_model_MT1.joblib; do
+          for f in best_model_MT-1.joblib best_model_MT0.joblib best_model_MT1.joblib best_model_MT-1.json best_model_MT0.json best_model_MT1.json; do
             if [ ! -s "${SELL_MODEL_DIR}/${f}" ]; then
               echo "Downloading ${f}..."
               gcloud storage cp \
@@ -75,6 +90,42 @@ jobs:
 
           echo "=== Model directory ==="
           ls -lah "${SELL_MODEL_DIR}"
+
+      - name: Download PEAK model artifacts from GCS (if not cached)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${PEAK_MODEL_DIR}"
+          for f in peak_model_MT-1.json peak_model_MT0.json peak_model_MT1.json peak_model_summary.json; do
+            if [ ! -s "${PEAK_MODEL_DIR}/${f}" ]; then
+              echo "Downloading ${f}..."
+              gcloud storage cp \
+                "gs://${MT_MODELS_BUCKET}/${PEAK_MODELS_PREFIX}/${f}" \
+                "${PEAK_MODEL_DIR}/${f}"
+            else
+              echo "Already present: ${f}"
+            fi
+          done
+          echo "=== Peak model directory ==="
+          ls -lah "${PEAK_MODEL_DIR}"
+
+      - name: Download QUALITY model artifacts from GCS (if not cached)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${QUALITY_MODEL_DIR}"
+          for f in goodsell_quality_MT-1.joblib goodsell_quality_MT0.joblib goodsell_quality_MT1.joblib goodsell_quality_summary.json; do
+            if [ ! -s "${QUALITY_MODEL_DIR}/${f}" ]; then
+              echo "Downloading ${f}..."
+              gcloud storage cp \
+                "gs://${MT_MODELS_BUCKET}/${QUALITY_MODELS_PREFIX}/${f}" \
+                "${QUALITY_MODEL_DIR}/${f}"
+            else
+              echo "Already present: ${f}"
+            fi
+          done
+          echo "=== Quality model directory ==="
+          ls -lah "${QUALITY_MODEL_DIR}"
 
       - name: Set up Git identity
         run: |
@@ -99,13 +150,17 @@ jobs:
           pip install -r requirements.txt
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Build MT dataset (live Yahoo Finance)
+      - name: Build live features (all models)
         run: |
-          python bot/LLM_data/input_llm/prepare_llm_dataset.py
+          python bot/build_live_features.py
 
-      - name: Run MT predictions
+      - name: Run all model predictions
         run: |
-          python bot/llm_predict.py
+          python bot/run_all_predictions.py
+
+      - name: Validate model inputs
+        run: |
+          python bot/validate_model_inputs.py
 
       - name: Run price check + sell logic
         env:
@@ -129,6 +184,8 @@ jobs:
           git add bot/live_results.csv || true
           git add bot/LLM_data/input_llm/llm_input_latest.csv || true
           git add bot/LLM_data/input_llm/llm_predictions.csv || true
+          git add bot/LLM_data/input_llm/llm_predictions_all.csv || true
+          git add bot/LLM_data/input_llm/model_input_validation.json || true
           git commit -m "🤖 Auto-update tracker + MT data [$(date -u '+%Y-%m-%d %H:%M:%S UTC')]" || echo "⚠️ Nothing to commit"
           git pull --rebase || true
           git push || true

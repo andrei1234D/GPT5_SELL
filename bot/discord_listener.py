@@ -4,7 +4,7 @@ import base64
 import sys
 import math
 from threading import Thread
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple, Any
 
 import requests
@@ -226,7 +226,7 @@ def get_fx_to_ron(currency: str, *, fallback: Optional[float] = None, ttl_minute
     if c in ("RON", "LEI"):
         return 1.0
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # Cache (TTL)
     if c in _FX_CACHE:
@@ -323,7 +323,7 @@ def _parse_utc_ts(ts: Optional[str]) -> Optional[datetime]:
     if not ts:
         return None
     try:
-        return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
+        return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     except Exception:
         return None
 
@@ -464,6 +464,7 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         old_invested = float(stocks[t].get("invested_lei", 0.0))
         old_fx = float(stocks[t].get("fx_rate_buy", fx_now))
         old_ccy = (stocks[t].get("currency") or ccy).upper().strip()
+        old_buy_time = stocks[t].get("buy_time")
 
         if old_ccy != ccy:
             await ctx.send(f"⚠️ Currency mismatch for {t} (stored {old_ccy}, live {ccy}). Not updating.")
@@ -479,15 +480,20 @@ async def buy(ctx, ticker: str, price: float, lei_invested: float):
         stocks[t]["avg_price"] = float(avg_price)
         stocks[t]["shares"] = float(new_shares)
         stocks[t]["invested_lei"] = float(new_invested)
+        stocks[t]["avg_price_ron"] = float(new_invested / new_shares) if new_shares > 0 else 0.0
         stocks[t]["currency"] = ccy
         stocks[t]["fx_rate_buy"] = float(new_fx)
+        if not old_buy_time:
+            stocks[t]["buy_time"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     else:
         stocks[t] = {
             "avg_price": float(price),
             "shares": float(shares_bought),
             "invested_lei": float(lei_invested),
+            "avg_price_ron": float(lei_invested / shares_bought) if shares_bought > 0 else 0.0,
             "currency": ccy,
             "fx_rate_buy": float(fx_now),
+            "buy_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
     data["stocks"] = stocks
@@ -558,6 +564,9 @@ async def sell(ctx, ticker: str, price: float, amount: str):
         stocks[t]["shares"] = float(remaining_shares)
         stocks[t]["invested_lei"] = float(invested_lei - cost_basis_lei)
         stocks[t]["avg_price"] = float(avg_price_ccy)
+        new_shares = float(stocks[t]["shares"])
+        new_invested = float(stocks[t]["invested_lei"])
+        stocks[t]["avg_price_ron"] = float(new_invested / new_shares) if new_shares > 0 else 0.0
         stocks[t]["currency"] = ccy
         stocks[t]["fx_rate_buy"] = float(new_fx)
 
@@ -609,7 +618,7 @@ async def list_cmd(ctx):
         state_ts = _parse_utc_ts(state.get("last_checked_time"))
         use_tracker_price = False
         if state_price is not None and state_price > 0 and state_ts is not None:
-            age_sec = (datetime.utcnow() - state_ts).total_seconds()
+            age_sec = (datetime.now(timezone.utc) - state_ts).total_seconds()
             use_tracker_price = (age_sec >= 0) and (age_sec <= (TRACKER_PRICE_MAX_AGE_HOURS * 3600))
 
         if use_tracker_price:
@@ -689,11 +698,20 @@ async def list_cmd(ctx):
         mt_prob = _safe_float(state.get("last_mt_prob"), None)
         thr_used = _safe_float(state.get("ml_prob_thr_used"), None)
         gate_used = _safe_float(state.get("last_mt_gate_used"), None)  # normalized ramp gate
+        gate_display = gate_used
+        if mt_prob is not None and thr_used is not None:
+            denom = (1.0 - float(thr_used))
+            if denom > 0:
+                gate_display = (float(mt_prob) - float(thr_used)) / denom
+                gate_display = _clamp(float(gate_display), 0.0, 1.0)
         mt_sell = state.get("last_mt_sell_signal", None)
         mt_score = _safe_float(state.get("last_mt_pred_sellscore"), None)
 
         det_contrib = _safe_float(state.get("last_contrib_det"), None)
         ml_contrib = _safe_float(state.get("last_contrib_ml"), None)
+        peak_contrib = _safe_float(state.get("last_contrib_peak"), None)
+        peak_prob = _safe_float(state.get("last_peak_prob"), None)
+        quality_prob = _safe_float(state.get("last_quality_prob"), None)
 
         last_alert = state.get("last_alert_time", None)
 
@@ -713,11 +731,14 @@ async def list_cmd(ctx):
             "mt_regime": mt_regime_int,
             "mt_prob": mt_prob,
             "thr_used": thr_used,
-            "gate_used": gate_used,
+            "gate_used": gate_display,
             "mt_sell": mt_sell,
             "mt_score": mt_score,
             "det_contrib": det_contrib,
             "ml_contrib": ml_contrib,
+            "peak_contrib": peak_contrib,
+            "peak_prob": peak_prob,
+            "quality_prob": quality_prob,
             "last_alert": last_alert,
             "sort_key": float(avg_sell_index),
         })
@@ -730,33 +751,27 @@ async def list_cmd(ctx):
         pct_txt = f" | PnL {float(s['pnl_pct']):+.2f}%" if s["pnl_pct"] is not None else ""
 
         lines = [
-            f"**{s['ticker']}** — {s['emoji']}",
-            f"    WeakDays {int(s['weak_days'])}/{int(s['weak_req'])} | AvgSellIndex {float(s['avg_sell_index']):.2f}{pct_txt}",
-            f"    💰 Unrealized PnL: {pnl_sign}{s['pnl_lei']:.2f} RON ({s['ccy']}→RON fx={s['fx']:.4f})",
-            "",
-            f"    🧠 Thr: early {s['early_thr']:.2f} | strong {s['strong_thr']:.2f} | MT {int(s['mt_regime']):+d}",
+            f"**{s['ticker']}** \u2014 {s['emoji']}",
+            f"    Weak {int(s['weak_days'])}/{int(s['weak_req'])} | AvgSellIndex {float(s['avg_sell_index']):.2f}{pct_txt} | MT {int(s['mt_regime']):+d}",
+            f"    \U0001F4B0 Unrealized: {pnl_sign}{s['pnl_lei']:.2f} RON ({s['ccy']}\u2192RON fx={s['fx']:.4f})",
+            f"    \U0001F9E0 Thr: {s['early_thr']:.2f}/{s['strong_thr']:.2f}",
         ]
 
-        if s["sell_index_raw"] is not None:
-            lines.append(f"    🧾 SellIndex_raw: {float(s['sell_index_raw']):.2f}")
-        lines.append("")
+        if s['det_contrib'] is not None or s['ml_contrib'] is not None:
+            det_txt = f"{float(s['det_contrib']):.2f}" if s['det_contrib'] is not None else 'n/a'
+            ml_txt = f"{float(s['ml_contrib']):.2f}" if s['ml_contrib'] is not None else 'n/a'
+            peak_txt = f"{float(s.get('peak_contrib')):.2f}" if s.get('peak_contrib') is not None else 'n/a'
+            peak_p_txt = f"{float(s.get('peak_prob')):.2f}" if s.get('peak_prob') is not None else 'n/a'
+            qual_txt = f"{float(s.get('quality_prob')):.2f}" if s.get('quality_prob') is not None else 'n/a'
+            lines.append(f"    \U0001F9E9 Mix: Det {det_txt} | ML {ml_txt} | Peak {peak_txt} (P {peak_p_txt}) | Qual P {qual_txt}")
+        if s['mt_prob'] is not None:
+            thr_used_txt = f"{float(s['thr_used']):.2f}" if s['thr_used'] is not None else 'n/a'
+            gate_used_txt = f"{float(s['gate_used']):.2f}" if s['gate_used'] is not None else 'n/a'
 
-        if s["det_contrib"] is not None or s["ml_contrib"] is not None:
-            det_txt = f"{float(s['det_contrib']):.2f}" if s["det_contrib"] is not None else "n/a"
-            ml_txt = f"{float(s['ml_contrib']):.2f}" if s["ml_contrib"] is not None else "n/a"
-            lines.append(f"    🧩 Mix: Det {det_txt} | ML {ml_txt}")
-            lines.append("")
-        if s["mt_prob"] is not None:
-            thr_used_txt = f"{float(s['thr_used']):.2f}" if s['thr_used'] is not None else "n/a"
-            gate_used_txt = f"{float(s['gate_used']):.2f}" if s['gate_used'] is not None else "n/a"
-
-            sell_txt = "SELL" if bool(s["mt_sell"]) else "HOLD"
+            sell_txt = 'SELL' if bool(s['mt_sell']) else 'HOLD'
             lines.append(
-                f"    🤖 MT | {sell_txt} | P {float(s['mt_prob']):.3f} | thr_used {thr_used_txt}"
+                f"    \U0001F916 MT | {sell_txt} | P {float(s['mt_prob']):.3f} | thr {thr_used_txt} | Gate {gate_used_txt}"
             )
-            lines.append(f"    🔧 Gate {gate_used_txt}")
-            lines.append("")
-
         ticker_blocks.append("\n".join(lines).rstrip())
 
     realized_pnl = float(data.get("realized_pnl", 0.0))

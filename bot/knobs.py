@@ -56,6 +56,32 @@ def fx_pair_to_ron(currency: str):
         return "CHFRON=X"
     if c == "CAD":
         return "CADRON=X"
+    if c == "AUD":
+        return "AUDRON=X"
+    if c == "NZD":
+        return "NZDRON=X"
+    if c == "JPY":
+        return "JPYRON=X"
+    if c == "SEK":
+        return "SEKRON=X"
+    if c == "NOK":
+        return "NOKRON=X"
+    if c == "DKK":
+        return "DKKRON=X"
+    if c == "PLN":
+        return "PLNRON=X"
+    if c == "HUF":
+        return "HUFRON=X"
+    if c == "CZK":
+        return "CZKRON=X"
+    if c == "TRY":
+        return "TRYRON=X"
+    if c == "MXN":
+        return "MXNRON=X"
+    if c == "HKD":
+        return "HKDRON=X"
+    if c == "SGD":
+        return "SGDRON=X"
     return None
 
 
