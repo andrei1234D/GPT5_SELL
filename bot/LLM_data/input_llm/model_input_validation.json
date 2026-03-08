@@ -1,0 +1,22 @@
+{
+  "status": "PASS",
+  "generated_utc": "2026-03-08T16:47:17Z",
+  "summary": {
+    "total_rows": 11,
+    "models": {
+      "mt": {
+        "rows": 11,
+        "issues": 0
+      },
+      "peak": {
+        "rows": 11,
+        "issues": 0
+      },
+      "quality": {
+        "rows": 11,
+        "issues": 0
+      }
+    }
+  },
+  "issues": []
+}
