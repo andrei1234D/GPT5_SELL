@@ -10,46 +10,6 @@
       "last_days_held": 0.8066087962962963,
       "last_closed_time": "2026-02-03T19:37:51Z"
     },
-    "CRDO": {
-      "trades": 2,
-      "avg_pnl_pct": 163.68606725303493,
-      "avg_days_held": 0.008032407407407408,
-      "total_cash_gain": 0.033033549990309816,
-      "last_pnl_pct": 330.6647627249902,
-      "last_cash_gain": 0.03306647627249902,
-      "last_days_held": 0.005810185185185186,
-      "last_closed_time": "2026-02-10T17:06:15Z"
-    },
-    "INOD": {
-      "trades": 1,
-      "avg_pnl_pct": -0.03009101039543917,
-      "avg_days_held": 0.002650462962962963,
-      "total_cash_gain": -3.009101039543917e-07,
-      "last_pnl_pct": -0.03009101039543917,
-      "last_cash_gain": -3.009101039543917e-07,
-      "last_days_held": 0.002650462962962963,
-      "last_closed_time": "2026-02-04T17:41:57Z"
-    },
-    "STRL": {
-      "trades": 1,
-      "avg_pnl_pct": -1.7743396614110662,
-      "avg_days_held": 0.002650462962962963,
-      "total_cash_gain": -1.7743396614110663e-05,
-      "last_pnl_pct": -1.7743396614110662,
-      "last_cash_gain": -1.7743396614110663e-05,
-      "last_days_held": 0.002650462962962963,
-      "last_closed_time": "2026-02-04T17:41:57Z"
-    },
-    "UCTT": {
-      "trades": 1,
-      "avg_pnl_pct": -1.0559930801248494,
-      "avg_days_held": 0.01025462962962963,
-      "total_cash_gain": -0.00010559930801248493,
-      "last_pnl_pct": -1.0559930801248494,
-      "last_cash_gain": -0.00010559930801248493,
-      "last_days_held": 0.01025462962962963,
-      "last_closed_time": "2026-02-04T17:41:57Z"
-    },
     "FOLD": {
       "trades": 1,
       "avg_pnl_pct": 0.350838476063338,
@@ -76,7 +36,7 @@
       "avg_days_held": 0.9308333333333333,
       "total_cash_gain": 1053.2824891969217,
       "last_pnl_pct": -0.8586470853834232,
-      "last_cash_gain": -8.586470853834231e-05,
+      "last_cash_gain": -8.586470853834231e-5,
       "last_days_held": 0.0,
       "last_closed_time": "2026-02-09T15:59:31Z"
     },
@@ -99,26 +59,6 @@
       "last_cash_gain": -72.91830200897584,
       "last_days_held": 1.8972337962962964,
       "last_closed_time": "2026-02-11T16:04:42Z"
-    },
-    "PYPL": {
-      "trades": 1,
-      "avg_pnl_pct": 1.0382723243150884,
-      "avg_days_held": 0.0,
-      "total_cash_gain": 1.0382723243150885e-05,
-      "last_pnl_pct": 1.0382723243150884,
-      "last_cash_gain": 1.0382723243150885e-05,
-      "last_days_held": 0.0,
-      "last_closed_time": "2026-02-06T21:34:08Z"
-    },
-    "AMD": {
-      "trades": 1,
-      "avg_pnl_pct": 979.8999786376953,
-      "avg_days_held": 0.0,
-      "total_cash_gain": 979.8999786376953,
-      "last_pnl_pct": 979.8999786376953,
-      "last_cash_gain": 979.8999786376953,
-      "last_days_held": 0.0,
-      "last_closed_time": "2026-02-10T17:06:15Z"
     },
     "FORM": {
       "trades": 2,
@@ -149,46 +89,6 @@
       "last_cash_gain": 8604.473453882336,
       "last_days_held": 0.7447222222222222,
       "last_closed_time": "2026-02-28T12:40:32Z"
-    },
-    "APM": {
-      "trades": 1,
-      "avg_pnl_pct": -92.57142884390696,
-      "avg_days_held": 0.0,
-      "total_cash_gain": -0.009257142884390696,
-      "last_pnl_pct": -92.57142884390696,
-      "last_cash_gain": -0.009257142884390696,
-      "last_days_held": 0.0,
-      "last_closed_time": "2026-03-01T18:14:56Z"
-    },
-    "APM.TO": {
-      "trades": 1,
-      "avg_pnl_pct": 0.0,
-      "avg_days_held": 0.009050925925925926,
-      "total_cash_gain": 0.0,
-      "last_pnl_pct": 0.0,
-      "last_cash_gain": 0.0,
-      "last_days_held": 0.009050925925925926,
-      "last_closed_time": "2026-03-02T15:12:20Z"
-    },
-    "HSLV.TO": {
-      "trades": 1,
-      "avg_pnl_pct": -3.395872923139809e-06,
-      "avg_days_held": 0.009050925925925926,
-      "total_cash_gain": -3.395872923139809e-10,
-      "last_pnl_pct": -3.395872923139809e-06,
-      "last_cash_gain": -3.395872923139809e-10,
-      "last_days_held": 0.009050925925925926,
-      "last_closed_time": "2026-03-02T15:12:20Z"
-    },
-    "MAU.TO": {
-      "trades": 1,
-      "avg_pnl_pct": 0.0,
-      "avg_days_held": 0.009050925925925926,
-      "total_cash_gain": 0.0,
-      "last_pnl_pct": 0.0,
-      "last_cash_gain": 0.0,
-      "last_days_held": 0.009050925925925926,
-      "last_closed_time": "2026-03-02T15:12:20Z"
     }
   }
 }

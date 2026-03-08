@@ -117,6 +117,9 @@ def main():
 
     for t in removed:
         info = (tracker.get("tickers", {}) or {}).get(t, {}) or {}
+        if info.get("manual_remove"):
+            tracker["tickers"].pop(t, None)
+            continue
         invested = _safe_float(info.get("last_invested_lei"), None)
         shares = _safe_float(info.get("last_shares"), None)
         last_price = _safe_float(info.get("last_checked_price"), None)

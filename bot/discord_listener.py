@@ -796,6 +796,24 @@ async def remove(ctx, ticker: str):
         await ctx.send(f"⚠️ {t} is not being tracked.")
         return
 
+    # Mark manual removal in tracker so post_process_tracker skips PnL logging
+    try:
+        pull_from_github(TRACKER_FILE)
+        tracker = {"tickers": {}}
+        if os.path.exists(TRACKER_FILE):
+            with open(TRACKER_FILE, "r", encoding="utf-8") as f:
+                tracker = json.load(f) or tracker
+        tracker.setdefault("tickers", {})
+        state = tracker["tickers"].get(t, {}) or {}
+        state["manual_remove"] = True
+        state["manual_remove_time"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        tracker["tickers"][t] = state
+        with open(TRACKER_FILE, "w", encoding="utf-8") as f:
+            json.dump(tracker, f, indent=2)
+        push_to_github(TRACKER_FILE, f"REMOVE {t} manual_remove flag")
+    except Exception as e:
+        print(f"⚠️ Could not mark manual remove in tracker: {e}")
+
     del stocks[t]
     data["stocks"] = stocks
     save_data(data)
