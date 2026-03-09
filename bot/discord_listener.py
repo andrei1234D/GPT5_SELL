@@ -440,6 +440,7 @@ async def on_command_error(ctx, error):
 # ---------------------------
 @bot.command()
 async def buy(ctx, ticker: str, price: float, lei_invested: float):
+    """Usage: !buy <ticker> <share price> <amount bought in lei>"""
     t = ticker.upper().strip()
     data = load_data()
     stocks = data.get("stocks", {}) or {}
