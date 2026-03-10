@@ -78,6 +78,15 @@
       "invested_lei": 1000.0,
       "currency": "USD",
       "fx_rate_buy": 4.389599800109863
+    },
+    "PAGS": {
+      "avg_price": 10.02,
+      "shares": 22.77248038618174,
+      "invested_lei": 1000.0,
+      "avg_price_ron": 43.912651720046995,
+      "currency": "USD",
+      "fx_rate_buy": 4.382500171661377,
+      "buy_time": "2026-03-10T22:06:59Z"
     }
   },
   "realized_pnl": 4167.1618219674465
