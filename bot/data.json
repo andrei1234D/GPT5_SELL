@@ -87,6 +87,15 @@
       "currency": "USD",
       "fx_rate_buy": 4.382500171661377,
       "buy_time": "2026-03-10T22:06:59Z"
+    },
+    "JAG.TO": {
+      "avg_price": 9.74,
+      "shares": 31.77537120461883,
+      "invested_lei": 1000.0,
+      "avg_price_ron": 31.470914802551267,
+      "currency": "CAD",
+      "fx_rate_buy": 3.231100082397461,
+      "buy_time": "2026-03-11T14:09:36Z"
     }
   },
   "realized_pnl": 4167.1618219674465
