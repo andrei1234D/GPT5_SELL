@@ -1,22 +1,35 @@
 {
-  "status": "PASS",
-  "generated_utc": "2026-03-10T21:32:30Z",
+  "status": "FAIL",
+  "generated_utc": "2026-03-11T14:14:53Z",
   "summary": {
-    "total_rows": 11,
+    "total_rows": 13,
     "models": {
       "mt": {
-        "rows": 11,
+        "rows": 13,
         "issues": 0
       },
       "peak": {
-        "rows": 11,
-        "issues": 0
+        "rows": 13,
+        "issues": 1
       },
       "quality": {
-        "rows": 11,
+        "rows": 13,
         "issues": 0
       }
     }
   },
-  "issues": []
+  "issues": [
+    {
+      "ticker": "JAG.TO",
+      "market_trend": 1,
+      "model": "peak",
+      "missing_cols": [],
+      "nan_cols": [
+        "past_peak_pnl",
+        "dd_from_past_peak",
+        "overbought_drawdown",
+        "peak_velocity"
+      ]
+    }
+  ]
 }
