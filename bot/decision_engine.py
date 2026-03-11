@@ -118,6 +118,7 @@ SELL_INDEX_ROLL_N = 7
 ML_RAMP_START = float(os.getenv("ML_RAMP_START", "0.01") or 0.01)
 PEAK_RAMP_START = float(os.getenv("PEAK_RAMP_START", "0.01") or 0.01)
 RAMP_DEBUG = (os.getenv("RAMP_DEBUG", "").strip() == "1")
+DET_V6_MT1_SCALE = float(os.getenv("DET_V6_MT1_SCALE", "0.76") or 0.76)
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -449,6 +450,93 @@ def git_commit_tracker():
 # ---------------------------
 # Deterministic scoring
 # ---------------------------
+def _compute_det_v6_score(*, current_price, pnl_pct, market_trend, ml_row, indicators):
+    if not ml_row:
+        return None
+
+    def num(name, default=None):
+        val = ml_row.get(name, default)
+        return _safe_float(val, default)
+
+    past_peak = float(num("past_peak_pnl", 0.0) or 0.0)
+    dd = 0.0
+    if past_peak > 0 and pnl_pct is not None:
+        dd = max(0.0, (float(past_peak) - float(pnl_pct)) / max(float(past_peak), 1e-6))
+
+    ma50 = _safe_float(indicators.get("ma50"), None)
+    ma200 = _safe_float(indicators.get("ma200"), None)
+    support = _safe_float(indicators.get("support"), None)
+    macd = _safe_float(indicators.get("macd"), None)
+    macd_signal = _safe_float(indicators.get("macd_signal"), None)
+    rsi = _safe_float(indicators.get("rsi"), None)
+
+    ret1 = num("Ret_1D", None)
+    ret5 = num("Ret_5D", None)
+    price_ema_ratio = num("Price_EMA20_Ratio", None)
+    vol_ratio = num("Volume_EMA20_Ratio", None)
+
+    below_ma50 = (
+        current_price is not None and ma50 is not None
+        and float(ma50) != 0.0 and float(current_price) < float(ma50)
+    )
+    below_ma200 = (
+        ma50 is not None and ma200 is not None
+        and float(ma200) != 0.0 and float(ma50) < float(ma200)
+    )
+    below_support = (
+        current_price is not None and support is not None
+        and float(current_price) < float(support)
+    )
+    macd_roll = (
+        macd is not None and macd_signal is not None
+        and float(macd) < float(macd_signal)
+    )
+    weak_rsi = rsi is not None and float(rsi) < 50.0
+    weak_ret = (
+        ret1 is not None and ret5 is not None
+        and float(ret1) < 0.0 and float(ret5) < 0.0
+    )
+    price_ema_weak = price_ema_ratio is not None and float(price_ema_ratio) < 1.0
+    vol_expand = vol_ratio is not None and float(vol_ratio) > 1.05
+
+    det2 = 0.0
+    if past_peak >= 15.0 and dd >= 0.08:
+        det2 += 0.75
+    if past_peak >= 25.0 and dd >= 0.14:
+        det2 += 1.00
+    if past_peak >= 35.0 and dd >= 0.20:
+        det2 += 1.25
+    if past_peak >= 50.0 and dd >= 0.28:
+        det2 += 1.50
+
+    if below_ma50 and macd_roll:
+        det2 += 1.25
+    if below_ma50 and price_ema_weak:
+        det2 += 0.75
+    if below_ma200:
+        det2 += 1.00
+    if below_support and vol_expand:
+        det2 += 1.25
+    elif below_support:
+        det2 += 0.75
+
+    if past_peak >= 20.0 and weak_ret and weak_rsi:
+        det2 += 1.00
+    elif weak_ret and weak_rsi:
+        det2 += 0.50
+
+    if past_peak >= 25.0 and dd >= 0.12 and macd_roll and price_ema_weak:
+        det2 += 1.25
+    if past_peak >= 25.0 and dd >= 0.18 and below_ma50 and vol_expand:
+        det2 += 1.00
+
+    if int(market_trend) == 1:
+        det2 *= float(DET_V6_MT1_SCALE)
+
+    return float(det2)
+
+
+
 def check_sell_conditions(
     ticker: str,
     buy_price: float,
@@ -790,6 +878,17 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
             info=info_state,
             debug=True,
         )
+
+        det_v6_score = _compute_det_v6_score(
+            current_price=current_price,
+            pnl_pct=pnl_pct,
+            market_trend=mt,
+            ml_row=ml_row,
+            indicators=indicators,
+        )
+        if det_v6_score is not None:
+            det_avg_score = float(det_v6_score)
+            det_score = float(det_v6_score)
 
         rule_scale = float(RULE_SCALE_BY_MT.get(mt, 10.0))
         rule_norm = min(1.0, float(det_avg_score) / rule_scale) if rule_scale > 0 else 0.0
