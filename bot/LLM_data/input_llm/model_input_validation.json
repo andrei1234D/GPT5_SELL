@@ -1,6 +1,6 @@
 {
-  "status": "FAIL",
-  "generated_utc": "2026-03-11T21:36:39Z",
+  "status": "PASS",
+  "generated_utc": "2026-03-12T15:18:02Z",
   "summary": {
     "total_rows": 13,
     "models": {
@@ -10,7 +10,7 @@
       },
       "peak": {
         "rows": 13,
-        "issues": 2
+        "issues": 0
       },
       "quality": {
         "rows": 13,
@@ -18,30 +18,5 @@
       }
     }
   },
-  "issues": [
-    {
-      "ticker": "FORM",
-      "market_trend": 1,
-      "model": "peak",
-      "missing_cols": [],
-      "nan_cols": [
-        "past_peak_pnl",
-        "dd_from_past_peak",
-        "overbought_drawdown",
-        "peak_velocity"
-      ]
-    },
-    {
-      "ticker": "JAG.TO",
-      "market_trend": 1,
-      "model": "peak",
-      "missing_cols": [],
-      "nan_cols": [
-        "past_peak_pnl",
-        "dd_from_past_peak",
-        "overbought_drawdown",
-        "peak_velocity"
-      ]
-    }
-  ]
+  "issues": []
 }
