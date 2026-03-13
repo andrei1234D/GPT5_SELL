@@ -32,8 +32,8 @@ import yfinance as yf
 from tracker import load_data
 from notify import send_discord_alert
 from fetch_data import compute_indicators
-from llm_predict import SellBrain, run_batch_predictions
 from model_registry import ModelRegistry
+from run_all_predictions import main as run_all_predictions_main
 from knobs import (
     TRACKER_FILE,
     PROFIT_ADJ,
@@ -189,8 +189,8 @@ def _load_agent_best_params() -> dict:
 
     if not isinstance(raw, dict):
         if env_candidate is not None:
-            print(f"⚠️ Agent best_params not found/invalid at override path: {env_candidate}")
-        print("⚠️ Agent best_params not found/invalid in expected locations. Using built-in fallback params.")
+            print(f"[WARN] Agent best_params not found/invalid at override path: {env_candidate}")
+        print("[WARN] Agent best_params not found/invalid in expected locations. Using built-in fallback params.")
         if tried:
             print("    Searched:")
             for t in tried[:10]:
@@ -228,10 +228,10 @@ def _load_agent_best_params() -> dict:
             continue
 
     if len(out) != 3:
-        print(f"⚠️ Agent best_params partially invalid (src={src}). Using built-in fallback params.")
+        print(f"[WARN] Agent best_params partially invalid (src={src}). Using built-in fallback params.")
         return {k: dict(v) for k, v in _FALLBACK_PARAMS.items()}
 
-    print(f"✅ Loaded agent best_params.json from: {src}")
+    print(f"[OK] Loaded agent best_params.json from: {src}")
     return out
 
 
@@ -772,7 +772,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
     day_key = _market_day_key(now_utc)
 
     if tracker.get("date") != day_key:
-        print(f"🧹 Resetting daily alert flag for market-day={day_key}")
+        print(f"[INFO] Resetting daily alert flag for market-day={day_key}")
         tracker["date"] = day_key
         tracker["had_alerts"] = False
 
@@ -786,14 +786,14 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
     reg = None
     try:
         reg = ModelRegistry()
-        print("🧠 Model registry loaded (MT + Peak + Quality).")
+        print("[INFO] Model registry loaded (Goodsell + Peak + Quality).")
         try:
-            outp = run_batch_predictions(LLM_INPUT_CSV, LLM_PRED_CSV, model_dir=None)
-            print(f"🧾 MT predictions refreshed → {outp}")
+            run_all_predictions_main()
+            print(f"[OK] Predictions refreshed -> {LLM_PRED_CSV}")
         except Exception as e:
-            print(f"⚠️ Could not refresh MT predictions CSV: {e}")
+            print(f"[WARN] Could not refresh prediction CSVs: {e}")
     except Exception as e:
-        print(f"⚠️ Could not load model registry: {e}")
+        print(f"[WARN] Could not load model registry: {e}")
         reg = None
 
     stocks = tracked["stocks"]
@@ -979,6 +979,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
 
         # Rolling avg sell index (every engine run / check)
         roll = info_state.get("rolling_sell_index", []) or []
+        prev_avg_sell_index = float(sum(roll) / len(roll)) if roll else float(sell_index_raw)
 
         roll.append(float(sell_index_raw))
 
@@ -990,6 +991,26 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         info_state["rolling_sell_index"] = roll
         avg_sell_index = float(sum(roll) / len(roll)) if roll else float(sell_index_raw)
 
+        past_peak = _safe_float(ml_row.get("past_peak_pnl"), 0.0) or 0.0
+        dd = 0.0
+        if past_peak > 0 and pnl_pct is not None and np.isfinite(float(pnl_pct)):
+            dd = max(0.0, (float(past_peak) - float(pnl_pct)) / max(float(past_peak), 1e-6))
+        ret1 = _safe_float(ml_row.get("Ret_1D"), None)
+        ret5 = _safe_float(ml_row.get("Ret_5D"), None)
+        price_ema_ratio = _safe_float(ml_row.get("Price_EMA20_Ratio"), None)
+        below_ma50 = (current_price is not None and ma50 is not None and float(ma50) != 0.0 and float(current_price) < float(ma50))
+        macd_roll_now = (macd is not None and macd_signal is not None and float(macd) < float(macd_signal))
+        weak_rsi = rsi is not None and float(rsi) < 50.0
+        weak_ret = (ret1 is not None and ret5 is not None and float(ret1) < 0.0 and float(ret5) < 0.0)
+        price_ema_weak = price_ema_ratio is not None and float(price_ema_ratio) < 1.0
+        strict_override = bool(
+            (past_peak >= 28.0 and dd >= 0.14 and pnl_pct >= 12.0 and macd_roll_now and price_ema_weak)
+            or (past_peak >= 35.0 and dd >= 0.18 and pnl_pct >= 18.0 and weak_ret and weak_rsi and below_ma50)
+        )
+        peak_prob_ok = peak_prob is not None and np.isfinite(float(peak_prob)) and float(peak_prob) >= 0.72
+        pressure_jump = float(sell_index_raw) - float(prev_avg_sell_index)
+        if strict_override and peak_prob_ok and pressure_jump >= 0.18:
+            avg_sell_index = float(max(avg_sell_index, 0.82 * float(sell_index_raw) + 0.18 * float(prev_avg_sell_index)))
 
         # Thresholds
         sell_thr_early = compute_sell_threshold(float(rp["base_early"]), pnl_pct)
@@ -1085,7 +1106,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         if mt_prob is not None:
             thr_model_txt = f"{float(mt_prob_thr_model):.2f}" if mt_prob_thr_model is not None else "n/a"
             print(
-                f"    ML: {'SELL' if mt_sell_signal else 'HOLD'} | P {float(mt_prob):.3f} (thr_model {thr_model_txt}) | "
+                f"    Goodsell: {'SELL' if mt_sell_signal else 'HOLD'} | P {float(mt_prob):.3f} (thr_model {thr_model_txt}) | "
                 f"GateUsed {ml_gate_used:.2f} | GateModel {mt_gate_model:.2f} | mt_weight {mt_weight:.2f} | "
                 f"pred {('%.3f' % float(pred_sellscore)) if pred_sellscore is not None else 'n/a'} vs sell_thr {('%.3f' % float(sell_threshold_model)) if sell_threshold_model is not None else 'n/a'} | "
                 f"{(model_type or 'model').strip()} | src={prob_source or 'n/a'}"
@@ -1144,6 +1165,8 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         info_state["last_contrib_peak_boost"] = float(peak_boost)
         info_state["last_peak_gate"] = float(peak_gate)
         info_state["last_quality_thr"] = float(quality_prob_thr_used)
+        info_state["last_goodsell_prob"] = None if mt_prob is None else float(mt_prob)
+        info_state["last_goodsell_prob_thr"] = float(ml_prob_thr_used)
 
         info_state["last_rule_flags"] = list(rule_reasons) if isinstance(rule_reasons, list) else []
 
@@ -1195,7 +1218,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
             sell_alerts.append(
                 f"\U0001F4C8 **[{ticker}] {label}**\n"
                 f"{pnl_context}\n"
-                f"\U0001F4B0 **PnL:** {pnl_pct:+.2f}% ({ccy}\u2192RON fx={fx_to_ron:.4f})\n"
+                f"\U0001F4B0 **PnL:** {pnl_pct:+.2f}% ({ccy}->RON fx={fx_to_ron:.4f})\n"
                 f"\U0001F9E0 **AvgSellIndex:** {avg_sell_index:.2f}\n"
                 f"\U0001F3AF **Thr:** {sell_thr_early:.2f}/{sell_thr_strong:.2f} | Weak {weak_days}/{weak_req_eff} (thr {weak_thr:.2f})\n"
                 + mix_line
@@ -1258,7 +1281,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         if d:
             os.makedirs(d, exist_ok=True)
         pd.DataFrame(live_rows).to_csv(LIVE_RESULTS_CSV, index=False)
-        print(f"🧾 Live results saved → {LIVE_RESULTS_CSV}")
+        print(f"[OK] Live results saved -> {LIVE_RESULTS_CSV}")
     except Exception as e:
         print(f"⚠️ Failed to write {LIVE_RESULTS_CSV}: {e}")
 
@@ -1281,7 +1304,7 @@ def run_decision_engine(test_mode: bool = False, end_of_day: bool = False):
         except Exception as e:
             print(f"⚠️ Discord send failed: {e}")
 
-    print(f"✅ Decision Engine Run Complete at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    print(f"[OK] Decision Engine Run Complete at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
 
 if __name__ == "__main__":

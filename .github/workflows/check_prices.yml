@@ -16,10 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MT_MODELS_BUCKET: gpt5-sell-models-balasandrei-20251221
-      MT_MODELS_PREFIX: models/mt
+      GOODSELL_MODELS_PREFIX: models/goodsell
       PEAK_MODELS_PREFIX: models/peak
       QUALITY_MODELS_PREFIX: models/quality
-      MT_MODELS_VERSION: '20251221'
+      MODEL_STACK_VERSION: '20260313-bestbaseline-v1'
 
     steps:
       - name: Checkout repo (no LFS)
@@ -38,21 +38,21 @@ jobs:
           echo "QUALITY_MODEL_DIR=${RUNNER_TEMP}/quality_models" >> "$GITHUB_ENV"
           echo "SELL_META_DIR=${RUNNER_TEMP}/mt_models" >> "$GITHUB_ENV"
 
-      - name: Cache MT models
+      - name: Cache Goodsell models
         uses: actions/cache@v3
         with:
           path: ${{ runner.temp }}/mt_models
-          key: mt-models-${{ env.MT_MODELS_VERSION }}
+          key: goodsell-models-${{ env.MODEL_STACK_VERSION }}
       - name: Cache Peak models
         uses: actions/cache@v3
         with:
           path: ${{ runner.temp }}/peak_models
-          key: peak-models-${{ env.MT_MODELS_VERSION }}
+          key: peak-models-${{ env.MODEL_STACK_VERSION }}
       - name: Cache Quality models
         uses: actions/cache@v3
         with:
           path: ${{ runner.temp }}/quality_models
-          key: quality-models-${{ env.MT_MODELS_VERSION }}
+          key: quality-models-${{ env.MODEL_STACK_VERSION }}
       - name: Show GitHub context (for WIF condition)
         shell: bash
         run: |
@@ -71,24 +71,24 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Download MT model artifacts from GCS (if not cached)
+      - name: Download Goodsell model artifacts from GCS (if not cached)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "${SELL_MODEL_DIR}"
 
-          for f in best_model_MT-1.joblib best_model_MT0.joblib best_model_MT1.joblib best_model_MT-1.json best_model_MT0.json best_model_MT1.json; do
+          for f in goodsell_MT-1.joblib goodsell_MT0.joblib goodsell_MT1.joblib goodsell_summary.json; do
             if [ ! -s "${SELL_MODEL_DIR}/${f}" ]; then
               echo "Downloading ${f}..."
               gcloud storage cp \
-                "gs://${MT_MODELS_BUCKET}/${MT_MODELS_PREFIX}/${f}" \
+                "gs://${MT_MODELS_BUCKET}/${GOODSELL_MODELS_PREFIX}/${f}" \
                 "${SELL_MODEL_DIR}/${f}"
             else
               echo "Already present: ${f}"
             fi
           done
 
-          echo "=== Model directory ==="
+          echo "=== Goodsell model directory ==="
           ls -lah "${SELL_MODEL_DIR}"
 
       - name: Download PEAK model artifacts from GCS (if not cached)

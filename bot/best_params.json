@@ -12,7 +12,7 @@
     "peak_boost_cap": 0.1,
     "peak_boost_thr": 0.85,
     "peak_thr_shift": 0.04,
-    "quality_prob_thr": 0.5
+    "quality_prob_thr": 0.56
   },
   "0": {
     "base_early": 0.6123725895511403,
@@ -27,7 +27,7 @@
     "peak_boost_cap": 0.1455875051817857,
     "peak_boost_thr": 0.7920518897903978,
     "peak_thr_shift": 0.04468564924380235,
-    "quality_prob_thr": 0.5
+    "quality_prob_thr": 0.56
   },
   "1": {
     "base_early": 0.5884557690630385,
@@ -42,6 +42,6 @@
     "peak_boost_cap": 0.3437936434949097,
     "peak_boost_thr": 0.8501085364247778,
     "peak_thr_shift": 0.05659033301881841,
-    "quality_prob_thr": 0.5
+    "quality_prob_thr": 0.56
   }
 }

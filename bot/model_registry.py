@@ -2,13 +2,18 @@
 Unified model registry for GPT5_SELL.
 
 Loads:
-  - MT goodsell models (SellBrain, joblibs + JSON sidecars)
+  - Goodsell models (joblib payloads; one per market trend)
   - Peak ML models (JSON or joblib)
   - Quality ML models (joblib payloads)
 
 Provides:
   - get_feature_columns(model_family, regime)
   - predict_mt / predict_peak / predict_quality
+
+Note:
+  The historical interface name predict_mt is kept for compatibility with the
+  rest of the live stack, but it now returns the retrained per-market-trend
+  goodsell classifier probability.
 """
 from __future__ import annotations
 
@@ -20,8 +25,6 @@ from typing import Any, Dict, Optional
 import numpy as np
 import pandas as pd
 from joblib import load
-
-from llm_predict import SellBrain
 
 
 def _safe_float(x, default=None):
@@ -43,12 +46,27 @@ def _resolve_dir(env_var: str, fallback: str) -> Path:
     return Path(fallback)
 
 
+def _expected_goodsell_name(regime: int) -> str:
+    return f"goodsell_MT{regime}.joblib" if regime != 0 else "goodsell_MT0.joblib"
+
+
 def _expected_peak_name(regime: int) -> str:
     return f"peak_model_MT{regime}.json" if regime != 0 else "peak_model_MT0.json"
 
 
 def _expected_quality_name(regime: int) -> str:
     return f"goodsell_quality_MT{regime}.joblib" if regime != 0 else "goodsell_quality_MT0.joblib"
+
+
+def _load_goodsell_models(sell_dir: Path) -> Dict[int, dict]:
+    models: Dict[int, dict] = {}
+    for regime in (-1, 0, 1):
+        path = sell_dir / _expected_goodsell_name(regime)
+        if not path.exists():
+            raise FileNotFoundError(f"Missing goodsell model joblib: {path}")
+        payload = load(path)
+        models[regime] = payload if isinstance(payload, dict) else {"model": payload}
+    return models
 
 
 def _load_peak_models(peak_dir: Path) -> Dict[int, dict]:
@@ -72,6 +90,27 @@ def _load_quality_models(quality_dir: Path) -> Dict[int, dict]:
     return models
 
 
+def _predict_payload_prob(payload: dict, row: Dict[str, Any]) -> float:
+    feats = payload.get("feature_columns", []) or []
+    model = payload.get("model", payload)
+    X = pd.DataFrame([{c: _safe_float(row.get(c), np.nan) for c in feats}])
+    for c in feats:
+        X[c] = pd.to_numeric(X[c], errors="coerce")
+
+    prob = None
+    if hasattr(model, "predict_proba"):
+        try:
+            prob = float(model.predict_proba(X)[:, 1][0])
+        except Exception:
+            prob = None
+    if prob is None:
+        try:
+            prob = float(model.predict(X)[0])
+        except Exception:
+            prob = 0.0
+    return float(max(0.0, min(1.0, _safe_float(prob, 0.0))))
+
+
 class ModelRegistry:
     def __init__(
         self,
@@ -80,11 +119,12 @@ class ModelRegistry:
         quality_dir: Optional[str | Path] = None,
         mt_meta_dir: Optional[str | Path] = None,
     ):
-        if mt_meta_dir:
-            os.environ["SELL_META_DIR"] = str(mt_meta_dir)
+        del mt_meta_dir  # kept only for compatibility with the old constructor
+
         if mt_dir is None:
-            mt_dir = _resolve_dir("SELL_MODEL_DIR", "Brain")
-        self.mt_brain = SellBrain(model_dir=mt_dir)
+            mt_dir = _resolve_dir("SELL_MODEL_DIR", "sell_models")
+        self.mt_dir = Path(mt_dir)
+        self.mt_models = _load_goodsell_models(self.mt_dir)
 
         if peak_dir is None:
             peak_dir = _resolve_dir("PEAK_MODEL_DIR", "peak_models")
@@ -96,27 +136,37 @@ class ModelRegistry:
         self.quality_dir = Path(quality_dir)
         self.quality_models = _load_quality_models(self.quality_dir)
 
-    # -------------------------
-    # Feature columns
-    # -------------------------
     def get_feature_columns(self, family: str, regime: int) -> list[str]:
         family = str(family).lower().strip()
         regime = int(regime) if regime in (-1, 0, 1) else 0
 
         if family == "mt":
-            meta = self.mt_brain._meta.get(regime, {})  # internal but stable
-            return list(meta.get("feature_columns", []) or [])
+            return list(self.mt_models[regime].get("feature_columns", []) or [])
         if family == "peak":
             return list(self.peak_models[regime].get("feature_columns", []) or [])
         if family == "quality":
             return list(self.quality_models[regime].get("feature_columns", []) or [])
         return []
 
-    # -------------------------
-    # Prediction helpers
-    # -------------------------
     def predict_mt(self, row: Dict[str, Any], market_trend: int) -> Dict[str, Any]:
-        return self.mt_brain.predict(row, market_trend=market_trend)
+        regime = int(market_trend) if market_trend in (-1, 0, 1) else 0
+        payload = self.mt_models[regime]
+        prob = _predict_payload_prob(payload, row)
+        thr = _safe_float(payload.get("threshold"), 0.5)
+        denom = max(1.0 - float(thr), 1e-9)
+        gate = 0.0 if prob < thr else max(0.0, min(1.0, (prob - float(thr)) / denom))
+        sell_signal = bool(prob >= float(thr))
+        return {
+            "mt_prob": prob,
+            "mt_prob_threshold": float(thr),
+            "mt_sell_signal": sell_signal,
+            "mt_gate": float(gate),
+            "mt_weight": float(gate),
+            "pred_sellscore": float(prob),
+            "sell_threshold": float(thr),
+            "model_type": payload.get("model_type", "ETC"),
+            "prob_source": "goodsell_classifier",
+        }
 
     def predict_peak(self, row: Dict[str, Any], market_trend: int) -> Dict[str, Any]:
         regime = int(market_trend) if market_trend in (-1, 0, 1) else 0
@@ -162,27 +212,7 @@ class ModelRegistry:
     def predict_quality(self, row: Dict[str, Any], market_trend: int) -> Dict[str, Any]:
         regime = int(market_trend) if market_trend in (-1, 0, 1) else 0
         payload = self.quality_models[regime]
-        feats = payload.get("feature_columns", []) or []
-        model = payload.get("model", payload)
-
-        X = pd.DataFrame([{c: _safe_float(row.get(c), np.nan) for c in feats}])
-        for c in feats:
-            X[c] = pd.to_numeric(X[c], errors="coerce")
-
-        prob = None
-        if hasattr(model, "predict_proba"):
-            try:
-                prob = float(model.predict_proba(X)[:, 1][0])
-            except Exception:
-                prob = None
-        if prob is None:
-            try:
-                prob = float(model.predict(X)[0])
-            except Exception:
-                prob = 0.0
-
-        prob = float(max(0.0, min(1.0, _safe_float(prob, 0.0))))
-
+        prob = _predict_payload_prob(payload, row)
         return {
             "quality_prob": prob,
             "quality_prob_threshold": _safe_float(payload.get("threshold"), None),
